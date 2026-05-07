@@ -27,7 +27,6 @@ export default function App() {
 	const [previewError, setPreviewError] = useState<string | null>(null);
 
 	const [overrides, setOverrides] = useState<ParamOverride[]>([]);
-	const [showExtras, setShowExtras] = useState(false);
 	const [nameOverride, setNameOverride] = useState('');
 	const [priceOverride, setPriceOverride] = useState('');
 	const [stockOverride, setStockOverride] = useState('');
@@ -83,15 +82,6 @@ export default function App() {
 		}
 		return map;
 	}, [overrides]);
-
-	const extrasCount = useMemo(() => {
-		let n = 0;
-		if (priceUserEdited) n++;
-		if (stockUserEdited) n++;
-		if (nameUserEdited) n++;
-		if (publicationStatus !== 'INACTIVE') n++;
-		return n;
-	}, [nameUserEdited, priceUserEdited, stockUserEdited, publicationStatus]);
 
 	// Live-computed title with parameter overrides applied (mirrors server logic).
 	const autoName = useMemo(() => {
@@ -333,10 +323,7 @@ export default function App() {
 							/>
 						)}
 
-						<CollapsibleExtras
-							open={showExtras}
-							onToggle={() => setShowExtras(v => !v)}
-							count={extrasCount}
+						<ExtrasPanel
 							nameOverride={nameOverride}
 							onName={v => {
 								setNameOverride(v);
@@ -403,10 +390,7 @@ function Banner({ note, onDismiss }: { note: string; onDismiss: () => void }) {
 	);
 }
 
-function CollapsibleExtras({
-	open,
-	onToggle,
-	count,
+function ExtrasPanel({
 	nameOverride,
 	onName,
 	priceOverride,
@@ -416,9 +400,6 @@ function CollapsibleExtras({
 	publicationStatus,
 	onPub,
 }: {
-	open: boolean;
-	onToggle: () => void;
-	count: number;
 	nameOverride: string;
 	onName: (v: string) => void;
 	priceOverride: string;
@@ -430,65 +411,49 @@ function CollapsibleExtras({
 }) {
 	return (
 		<section className='panel'>
-			<button
-				type='button'
-				onClick={onToggle}
-				className='w-full px-4 h-11 flex items-center justify-between border-b border-border hover:bg-soft transition'>
-				<span className='label flex items-center gap-2'>
-					Ещё параметры
-					{count > 0 && (
-						<span className='text-[11px] font-medium text-flame normal-case tracking-normal'>
-							· {count} изменено
-						</span>
-					)}
-				</span>
-				<span className='text-ink-muted'>{open ? '▾' : '▸'}</span>
-			</button>
-			{open && (
-				<div className='p-4 grid grid-cols-1 md:grid-cols-2 gap-3'>
-					<Labelled label='Название'>
-						<input
-							className='input'
-							value={nameOverride}
-							onChange={e => onName(e.target.value)}
-						/>
-					</Labelled>
-					<Labelled label='Цена (PLN)'>
-						<input
-							className='input'
-							value={priceOverride}
-							onChange={e => onPrice(e.target.value)}
-						/>
-					</Labelled>
-					<Labelled label='Остаток (шт)'>
-						<input
-							className='input'
-							inputMode='numeric'
-							value={stockOverride}
-							onChange={e => onStock(e.target.value.replace(/\D/g, ''))}
-						/>
-					</Labelled>
-					<Labelled label='Статус публикации'>
-						<div className='flex h-10 border border-border rounded-md overflow-hidden'>
-							{(['INACTIVE', 'ACTIVE'] as const).map((opt, i) => (
-								<button
-									key={opt}
-									type='button'
-									onClick={() => onPub(opt)}
-									className={`flex-1 text-[12px] font-medium transition ${
-										publicationStatus === opt
-											? opt === 'ACTIVE'
-												? 'bg-flame text-white'
-												: 'bg-soft text-ink'
-											: 'bg-card text-ink-muted hover:text-ink'
-									} ${i === 0 ? 'border-r border-border' : ''}`}>
-									{opt === 'ACTIVE' ? 'Активна' : 'Черновик'}
-								</button>
-							))}
-						</div>
-					</Labelled>
-				</div>
-			)}
+			<div className='p-4 grid grid-cols-1 md:grid-cols-2 gap-3'>
+				<Labelled label='Название'>
+					<input
+						className='input'
+						value={nameOverride}
+						onChange={e => onName(e.target.value)}
+					/>
+				</Labelled>
+				<Labelled label='Цена (PLN)'>
+					<input
+						className='input'
+						value={priceOverride}
+						onChange={e => onPrice(e.target.value)}
+					/>
+				</Labelled>
+				<Labelled label='Остаток (шт)'>
+					<input
+						className='input'
+						inputMode='numeric'
+						value={stockOverride}
+						onChange={e => onStock(e.target.value.replace(/\D/g, ''))}
+					/>
+				</Labelled>
+				<Labelled label='Статус публикации'>
+					<div className='flex h-10 border border-border rounded-md overflow-hidden'>
+						{(['INACTIVE', 'ACTIVE'] as const).map((opt, i) => (
+							<button
+								key={opt}
+								type='button'
+								onClick={() => onPub(opt)}
+								className={`flex-1 text-[12px] font-medium transition ${
+									publicationStatus === opt
+										? opt === 'ACTIVE'
+											? 'bg-flame text-white'
+											: 'bg-soft text-ink'
+										: 'bg-card text-ink-muted hover:text-ink'
+								} ${i === 0 ? 'border-r border-border' : ''}`}>
+								{opt === 'ACTIVE' ? 'Активна' : 'Черновик'}
+							</button>
+						))}
+					</div>
+				</Labelled>
+			</div>
 		</section>
 	);
 }
