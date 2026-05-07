@@ -25,11 +25,12 @@ ENV NODE_ENV=production
 # Tini for proper signal handling
 RUN apk add --no-cache tini
 
+# With npm workspaces, runtime dependencies are hoisted to /app/node_modules
+# (server/node_modules is empty or absent, so we don't try to copy it).
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/node_modules ./node_modules
 COPY --from=builder /app/server/package.json ./server/package.json
 COPY --from=builder /app/server/dist ./server/dist
-COPY --from=builder /app/server/node_modules ./server/node_modules
 COPY --from=builder /app/web/dist ./web/dist
 
 # Token storage volume mount point
