@@ -1,0 +1,97 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  html, body, #root {
+    height: 100%;
+  }
+
+  body {
+    background: #F7F5F0;
+    color: #1F1F23;
+    font-feature-settings: 'cv11', 'tnum';
+  }
+
+  ::selection {
+    background: rgba(255, 107, 53, 0.25);
+    color: #1F1F23;
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: #E2DCD2;
+    border-radius: 6px;
+    border: 2px solid #F7F5F0;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: #CCC5B8;
+  }
+
+  :focus-visible {
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.22);
+    border-radius: 6px;
+  }
+
+  input, textarea {
+    caret-color: #FF6B35;
+  }
+}
+
+@layer components {
+  .panel {
+    @apply bg-card border border-border rounded-lg shadow-card overflow-hidden;
+  }
+
+  .label {
+    @apply text-[11px] uppercase tracking-wider text-ink-muted font-medium;
+  }
+
+  .btn {
+    @apply inline-flex items-center justify-center gap-2 px-4 h-10 text-[13px] font-medium
+           rounded-md border border-border bg-card text-ink
+           transition active:translate-y-px disabled:opacity-50 disabled:cursor-not-allowed;
+  }
+  .btn:hover:not(:disabled) {
+    @apply bg-soft border-border-strong;
+  }
+
+  .btn-primary {
+    @apply border-flame bg-flame text-white;
+  }
+  .btn-primary:hover:not(:disabled) {
+    @apply bg-flame-soft border-flame-soft;
+  }
+
+  .btn-ghost {
+    @apply border-transparent bg-transparent text-ink-muted;
+  }
+  .btn-ghost:hover:not(:disabled) {
+    @apply bg-soft text-ink;
+  }
+
+  .input {
+    @apply w-full bg-card border border-border rounded-md text-ink px-3 h-10
+           text-[13px] placeholder:text-ink-faint
+           focus:outline-none focus:border-flame focus:shadow-focus;
+  }
+  textarea.input {
+    @apply h-auto py-2;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1.5 h-6 px-2 text-[11px] font-medium
+           border border-border bg-soft text-ink-muted rounded-full;
+  }
+}

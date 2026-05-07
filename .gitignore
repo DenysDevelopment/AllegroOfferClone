@@ -1,0 +1,21 @@
+node_modules
+dist
+build
+*.log
+.env
+.env.local
+.env.*.local
+
+# OAuth tokens — never commit, in any directory
+**/data/tokens.*.json
+data/
+
+# TypeScript build cache
+*.tsbuildinfo
+**/vite.config.d.ts
+**/vite.config.js
+
+.DS_Store
+.vscode
+.idea
+coverage

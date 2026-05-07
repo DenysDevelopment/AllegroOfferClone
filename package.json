@@ -1,0 +1,27 @@
+{
+  "name": "allegro-clone-offer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Web app to clone Allegro offers with parameter overrides (e.g. SSD 256GB -> 512GB)",
+  "workspaces": [
+    "server",
+    "web"
+  ],
+  "scripts": {
+    "dev": "concurrently -k -n server,web -c blue,green \"npm:dev:server\" \"npm:dev:web\"",
+    "dev:server": "npm run dev -w server",
+    "dev:web": "npm run dev -w web",
+    "build": "npm run build -w server && npm run build -w web",
+    "build:server": "npm run build -w server",
+    "build:web": "npm run build -w web",
+    "start": "npm run start -w server",
+    "lint": "npm run lint -ws --if-present",
+    "test": "npm run test -w server"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.0"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
