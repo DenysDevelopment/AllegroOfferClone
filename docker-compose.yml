@@ -4,10 +4,12 @@ services:
     image: allegro-clone:latest
     container_name: allegro-clone
     restart: unless-stopped
-    # No host port exposure — the existing CRM Caddy reaches us
-    # by container name (`allegro-clone:3000`) on the shared docker network.
-    expose:
-      - "3000"
+    # By default we expose 3000 on loopback so a host-level Caddy can proxy.
+    # When a docker-Caddy stack is detected, the deploy script writes a
+    # docker-compose.override.yml that joins that stack's network and removes
+    # the host port mapping.
+    ports:
+      - "127.0.0.1:3000:3000"
     env_file:
       - .env
     environment:
@@ -15,15 +17,8 @@ services:
       DATA_DIR: /app/data
     volumes:
       - ./data:/app/data
-    networks:
-      - default
-      - shorterlink_default
     healthcheck:
       test: ["CMD", "wget", "-qO-", "http://localhost:3000/api/health"]
       interval: 30s
       timeout: 5s
       retries: 3
-
-networks:
-  shorterlink_default:
-    external: true
