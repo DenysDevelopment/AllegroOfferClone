@@ -58,9 +58,14 @@ else
   ok "docker compose plugin already installed"
 fi
 
-# --- 2. Caddy ---
-if ! command -v caddy >/dev/null 2>&1; then
-  note "Installing Caddy..."
+# --- 2. Caddy: reuse existing one if present (host-level or in another docker stack) ---
+EXISTING_CADDY_CONTAINER=""
+if docker ps --format '{{.Image}} {{.Names}}' | grep -qi 'caddy'; then
+  EXISTING_CADDY_CONTAINER=$(docker ps --format '{{.Image}} {{.Names}}' \
+    | grep -i 'caddy' | awk '{print $2}' | head -n 1)
+  ok "Reusing existing Caddy container: ${EXISTING_CADDY_CONTAINER}"
+elif ! command -v caddy >/dev/null 2>&1; then
+  note "No Caddy detected — installing host-level Caddy..."
   apt-get install -y debian-keyring debian-archive-keyring apt-transport-https curl
   curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' \
     | gpg --dearmor -o /usr/share/keyrings/caddy-stable-archive-keyring.gpg
@@ -70,7 +75,7 @@ if ! command -v caddy >/dev/null 2>&1; then
   apt-get install -y caddy
   ok "Caddy installed"
 else
-  ok "Caddy already installed"
+  ok "Host-level Caddy already installed"
 fi
 
 # --- 3. Repo ---
@@ -137,16 +142,56 @@ else
   fi
 fi
 
-# --- 5. Caddy ---
-note "Writing Caddyfile"
-cat > /etc/caddy/Caddyfile <<EOF
+# --- 5. Caddy config ---
+if [[ -n "${EXISTING_CADDY_CONTAINER}" ]]; then
+  note "Adding ${PUBLIC_HOST} to existing Caddyfile in ${EXISTING_CADDY_CONTAINER}"
+
+  # Find the Caddyfile mount on the host
+  CADDYFILE_HOST=$(docker inspect "${EXISTING_CADDY_CONTAINER}" \
+    --format '{{range .Mounts}}{{if or (eq .Destination "/etc/caddy/Caddyfile") (eq .Destination "/etc/caddy")}}{{.Source}}{{"\n"}}{{end}}{{end}}' \
+    | head -n 1)
+  if [[ -z "${CADDYFILE_HOST}" ]]; then
+    err "Could not find Caddyfile mount on container ${EXISTING_CADDY_CONTAINER}."
+    err "Find it manually: docker inspect ${EXISTING_CADDY_CONTAINER} | grep -B2 -A2 caddy"
+    exit 1
+  fi
+  if [[ -d "${CADDYFILE_HOST}" ]]; then
+    CADDYFILE_HOST="${CADDYFILE_HOST}/Caddyfile"
+  fi
+  note "Caddyfile path: ${CADDYFILE_HOST}"
+
+  # Idempotent: replace any prior block for this host
+  if grep -q "^${PUBLIC_HOST}\s*{" "${CADDYFILE_HOST}" 2>/dev/null; then
+    note "Block for ${PUBLIC_HOST} already present — leaving it"
+  else
+    cp "${CADDYFILE_HOST}" "${CADDYFILE_HOST}.bak.$(date +%s)"
+    cat >> "${CADDYFILE_HOST}" <<EOF
+
+# --- allegro-clone (managed by deploy-vps.sh) ---
+${PUBLIC_HOST} {
+  encode gzip
+  reverse_proxy allegro-clone:3000
+}
+EOF
+    ok "Appended block to ${CADDYFILE_HOST} (backup saved alongside)"
+  fi
+
+  # Validate config inside the container, then reload
+  docker exec "${EXISTING_CADDY_CONTAINER}" caddy validate --config /etc/caddy/Caddyfile --adapter caddyfile \
+    || { err "Caddyfile is invalid — review ${CADDYFILE_HOST}"; exit 1; }
+  docker exec "${EXISTING_CADDY_CONTAINER}" caddy reload --config /etc/caddy/Caddyfile --adapter caddyfile
+  ok "Reloaded ${EXISTING_CADDY_CONTAINER}"
+else
+  note "Writing host Caddyfile"
+  cat > /etc/caddy/Caddyfile <<EOF
 ${PUBLIC_HOST} {
   encode gzip
   reverse_proxy 127.0.0.1:3000
 }
 EOF
-systemctl reload caddy || systemctl restart caddy
-ok "Caddy configured for ${PUBLIC_HOST}"
+  systemctl reload caddy || systemctl restart caddy
+  ok "Caddy configured for ${PUBLIC_HOST}"
+fi
 
 # --- 6. App (docker compose) ---
 note "Starting docker compose stack"
