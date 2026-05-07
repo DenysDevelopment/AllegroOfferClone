@@ -7,6 +7,14 @@ import type {
 	PublicationCommandStatus,
 } from './types.js';
 
+export type DescriptionItem =
+	| { type: 'TEXT'; content: string }
+	| { type: 'IMAGE'; url: string };
+
+export interface DescriptionOverride {
+	sections: Array<{ items: DescriptionItem[] }>;
+}
+
 export interface CloneOptions {
 	sourceOfferId: string;
 	/** Map of parameter name (e.g. "Pojemność dysku SSD") → new value (e.g. "512 GB"). */
@@ -22,6 +30,10 @@ export interface CloneOptions {
 	 * Default: 'INACTIVE' for safety — operator can review then activate.
 	 */
 	publicationStatus?: 'ACTIVE' | 'INACTIVE';
+	/** Replace the description sections wholesale (text/image items in their section structure). */
+	descriptionOverride?: DescriptionOverride;
+	/** Replace the offer-level image gallery (array of URLs). */
+	imagesOverride?: string[];
 	/** Dry run: build the body but don't POST. */
 	dryRun?: boolean;
 }
@@ -141,7 +153,10 @@ export async function buildCloneBody(
 			desiredParams.push({ id: '', name: paramName, values: [newValue] });
 			oldValues.push({ name: paramName, new: newValue });
 		} else {
-			const old = desiredParams[idx].values?.[0];
+			// Dictionary params keep the human label in `valuesLabels` and `values` is null —
+			// fall back to it so title-substitution can find what to replace ("16 GB" etc.).
+			const old =
+				desiredParams[idx].valuesLabels?.[0] ?? desiredParams[idx].values?.[0];
 			desiredParams[idx] = {
 				...desiredParams[idx],
 				values: [newValue],
@@ -219,9 +234,36 @@ export async function buildCloneBody(
 		});
 	}
 
+	const overriddenDescription = options.descriptionOverride
+		? options.descriptionOverride
+		: source.description;
+	if (options.descriptionOverride) {
+		const items = options.descriptionOverride.sections.flatMap(s => s.items);
+		const txt = items.filter(i => i.type === 'TEXT').length;
+		const img = items.filter(i => i.type === 'IMAGE').length;
+		steps.push({
+			level: 'info',
+			message: `Описание заменено: ${options.descriptionOverride.sections.length} секц. (${txt} текст, ${img} картинок)`,
+		});
+	}
+
+	// Allegro's GET response returns offer-level images as `{url: string}[]`. The POST
+	// endpoint accepts the same shape, so we normalize a plain `string[]` override into it.
+	const overriddenImages: AllegroOffer['images'] = options.imagesOverride
+		? options.imagesOverride.map(url => ({ url }))
+		: source.images;
+	if (options.imagesOverride) {
+		steps.push({
+			level: 'info',
+			message: `Картинки заменены: ${options.imagesOverride.length}`,
+		});
+	}
+
 	const body = stripReadonlyFields({
 		...source,
 		name: newName,
+		description: overriddenDescription,
+		images: overriddenImages,
 		productSet: [
 			{
 				...(productSetItem ?? {}),

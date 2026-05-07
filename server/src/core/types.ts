@@ -1,8 +1,10 @@
 export interface AllegroParameter {
   id: string;
   name?: string;
-  values?: string[];
-  valuesIds?: string[];
+  values?: string[] | null;
+  valuesLabels?: string[] | null;
+  valuesIds?: string[] | null;
+  unit?: string | null;
   rangeValue?: { from?: string; to?: string };
 }
 

@@ -3,6 +3,17 @@ import { z } from 'zod';
 import type { AllegroClient } from '../core/allegro.js';
 import { cloneOffer, buildCloneBody } from '../core/clone.js';
 
+const descriptionItemSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('TEXT'), content: z.string() }),
+  z.object({ type: z.literal('IMAGE'), url: z.string().url() }),
+]);
+
+const descriptionSchema = z.object({
+  sections: z
+    .array(z.object({ items: z.array(descriptionItemSchema).min(1) }))
+    .min(1),
+});
+
 const cloneSchema = z.object({
   sourceOfferId: z.string().min(1),
   paramOverrides: z.record(z.string(), z.string()).default({}),
@@ -10,6 +21,8 @@ const cloneSchema = z.object({
   priceOverride: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
   stockOverride: z.number().int().min(0).optional(),
   publicationStatus: z.enum(['ACTIVE', 'INACTIVE']).default('INACTIVE'),
+  descriptionOverride: descriptionSchema.optional(),
+  imagesOverride: z.array(z.string().url()).optional(),
   dryRun: z.boolean().default(false),
 });
 
@@ -51,6 +64,8 @@ export function apiRouter(client: AllegroClient): Router {
         product,
         parameters: product?.parameters ?? offer.productSet?.[0]?.product?.parameters ?? [],
         categoryParameters: categoryParameters?.parameters ?? [],
+        description: offer.description ?? null,
+        images: offer.images ?? [],
       });
     } catch (e) {
       next(e);

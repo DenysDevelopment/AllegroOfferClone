@@ -1,4 +1,4 @@
-import type { OfferPreview } from '../api';
+import type { OfferParameter, OfferPreview } from '../api';
 
 interface Props {
 	offerId: string;
@@ -7,6 +7,22 @@ interface Props {
 	loading: boolean;
 	error: string | null;
 	onLoad: () => void;
+}
+
+function imageUrl(item: { url: string } | string): string {
+	return typeof item === 'string' ? item : item.url;
+}
+
+// Allegro returns dictionary params with the human label in `valuesLabels` and
+// `values: null`; numeric/string params put the raw number in `values` plus a `unit`.
+// Prefer the label when present; otherwise compose `value [unit]`.
+export function paramDisplayValue(p: OfferParameter): string {
+	const labels = (p.valuesLabels ?? []).filter(Boolean);
+	if (labels.length) return labels.join(', ');
+	const vals = (p.values ?? []).filter(Boolean);
+	if (!vals.length) return '—';
+	const joined = vals.join(', ');
+	return p.unit ? `${joined} ${p.unit}` : joined;
 }
 
 export function SourcePanel({
@@ -18,6 +34,10 @@ export function SourcePanel({
 	onLoad,
 }: Props) {
 	const params = preview?.parameters ?? [];
+	const offerImages = preview?.images ?? [];
+	const productImages = preview?.product?.images ?? [];
+	const galleryImages = offerImages.length ? offerImages : productImages;
+	const descriptionSections = preview?.description?.sections ?? [];
 
 	return (
 		<section className='panel'>
@@ -87,6 +107,35 @@ export function SourcePanel({
 						</span>
 					</div>
 
+					{galleryImages.length > 0 && (
+						<div className='border-t border-border-muted pt-3'>
+							<div className='label mb-2'>
+								Картинки оферты ({galleryImages.length})
+							</div>
+							<div className='grid grid-cols-4 sm:grid-cols-6 gap-2'>
+								{galleryImages.map((img, i) => {
+									const url = imageUrl(img);
+									return (
+										<a
+											key={`${url}-${i}`}
+											href={url}
+											target='_blank'
+											rel='noreferrer'
+											className='block aspect-square border border-border rounded-md overflow-hidden bg-soft hover:border-flame transition'
+											title={url}>
+											<img
+												src={url}
+												alt={`img-${i}`}
+												loading='lazy'
+												className='w-full h-full object-contain'
+											/>
+										</a>
+									);
+								})}
+							</div>
+						</div>
+					)}
+
 					{params.length > 0 && (
 						<div className='border-t border-border-muted pt-3'>
 							<div className='label mb-2'>Параметры ({params.length})</div>
@@ -99,8 +148,42 @@ export function SourcePanel({
 											{p.name ?? p.id}
 										</span>
 										<span className='text-ink text-right'>
-											{p.values?.join(', ') ?? '—'}
+											{paramDisplayValue(p)}
 										</span>
+									</div>
+								))}
+							</div>
+						</div>
+					)}
+
+					{descriptionSections.length > 0 && (
+						<div className='border-t border-border-muted pt-3'>
+							<div className='label mb-2'>
+								Описание ({descriptionSections.length} секц.)
+							</div>
+							<div className='space-y-2 max-h-72 overflow-y-auto pr-1 text-[13px]'>
+								{descriptionSections.map((s, i) => (
+									<div
+										key={i}
+										className='border border-border-muted rounded-md p-2 bg-soft/40'>
+										{s.items.map((it, j) =>
+											it.type === 'TEXT' ? (
+												<div
+													key={j}
+													className='text-ink leading-snug [&_h1]:text-[15px] [&_h1]:font-semibold [&_h2]:text-[14px] [&_h2]:font-semibold [&_h2]:mt-2 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_b]:font-semibold [&_p]:my-1'
+													dangerouslySetInnerHTML={{ __html: it.content }}
+												/>
+											) : (
+												<a
+													key={j}
+													href={it.url}
+													target='_blank'
+													rel='noreferrer'
+													className='block mt-1 text-flame text-[12px] truncate'>
+													IMG: {it.url}
+												</a>
+											),
+										)}
 									</div>
 								))}
 							</div>

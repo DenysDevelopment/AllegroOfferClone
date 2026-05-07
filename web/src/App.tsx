@@ -4,9 +4,12 @@ import {
 	type AuthStatus,
 	type CloneResult,
 	type CloneStep,
+	type DescriptionSections,
 	type OfferPreview,
 } from './api';
 import { ConnectGate } from './components/ConnectGate';
+import { DescriptionEditor } from './components/DescriptionEditor';
+import { ImagesEditor } from './components/ImagesEditor';
 import {
 	OverridesEditor,
 	type ParamOverride,
@@ -34,6 +37,12 @@ export default function App() {
 	const [publicationStatus, setPublicationStatus] = useState<
 		'ACTIVE' | 'INACTIVE'
 	>('INACTIVE');
+	const [imageUrls, setImageUrls] = useState<string[]>([]);
+	const [imagesUserEdited, setImagesUserEdited] = useState(false);
+	const [description, setDescription] = useState<DescriptionSections>({
+		sections: [],
+	});
+	const [descriptionUserEdited, setDescriptionUserEdited] = useState(false);
 
 	const [steps, setSteps] = useState<CloneStep[]>([]);
 	const [working, setWorking] = useState<'idle' | 'clone'>('idle');
@@ -92,7 +101,8 @@ export default function App() {
 			const meta = preview.parameters?.find(
 				p => (p.name ?? '').toLowerCase() === o.name.trim().toLowerCase(),
 			);
-			const old = meta?.values?.[0];
+			// Allegro stores dict-param values in `valuesLabels` and free-form ones in `values`.
+			const old = meta?.valuesLabels?.[0] || meta?.values?.[0];
 			if (!old || !o.value.trim()) continue;
 			out = substituteValueVariants(out, old, o.value.trim());
 		}
@@ -104,6 +114,25 @@ export default function App() {
 		setNameUserEdited(false);
 		setPriceUserEdited(false);
 		setStockUserEdited(false);
+		setImagesUserEdited(false);
+		setDescriptionUserEdited(false);
+	}, [preview?.id]);
+
+	// Auto-fill images and description from the source on offer load (one-time per offer).
+	useEffect(() => {
+		if (!preview) return;
+		if (!imagesUserEdited) {
+			const offerImgs = preview.images ?? [];
+			const productImgs = preview.product?.images ?? [];
+			const src = offerImgs.length ? offerImgs : productImgs;
+			setImageUrls(src.map(it => (typeof it === 'string' ? it : it.url)));
+		}
+		if (!descriptionUserEdited) {
+			setDescription(
+				preview.description ?? { sections: [] },
+			);
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [preview?.id]);
 
 	// Auto-fill name (live-updated as overrides change) unless user has typed.
@@ -140,6 +169,39 @@ export default function App() {
 		}
 	};
 
+	const cleanedImages = useMemo(
+		() => imageUrls.map(u => u.trim()).filter(Boolean),
+		[imageUrls],
+	);
+
+	// Strip empty TEXT items, then strip sections that became empty.
+	const cleanedDescription = useMemo<DescriptionSections | undefined>(() => {
+		const cleaned = description.sections
+			.map(s => ({
+				items: s.items.filter(it =>
+					it.type === 'TEXT' ? it.content.trim() : it.url.trim(),
+				),
+			}))
+			.filter(s => s.items.length > 0);
+		if (cleaned.length === 0) return undefined;
+		return { sections: cleaned };
+	}, [description]);
+
+	const resetImages = () => {
+		if (!preview) return;
+		const offerImgs = preview.images ?? [];
+		const productImgs = preview.product?.images ?? [];
+		const src = offerImgs.length ? offerImgs : productImgs;
+		setImageUrls(src.map(it => (typeof it === 'string' ? it : it.url)));
+		setImagesUserEdited(false);
+	};
+
+	const resetDescription = () => {
+		if (!preview) return;
+		setDescription(preview.description ?? { sections: [] });
+		setDescriptionUserEdited(false);
+	};
+
 	const buildPayload = (dryRun: boolean) => ({
 		sourceOfferId: offerId,
 		paramOverrides: cleanedOverrides,
@@ -147,6 +209,8 @@ export default function App() {
 		priceOverride: priceOverride.trim() || undefined,
 		stockOverride: stockOverride ? Number(stockOverride) : undefined,
 		publicationStatus,
+		descriptionOverride: descriptionUserEdited ? cleanedDescription : undefined,
+		imagesOverride: imagesUserEdited ? cleanedImages : undefined,
 		dryRun,
 	});
 
@@ -244,6 +308,30 @@ export default function App() {
 							overrides={overrides}
 							onChange={setOverrides}
 						/>
+
+						{preview && (
+							<ImagesEditor
+								urls={imageUrls}
+								onChange={v => {
+									setImageUrls(v);
+									setImagesUserEdited(true);
+								}}
+								dirty={imagesUserEdited}
+								onReset={resetImages}
+							/>
+						)}
+
+						{preview && (
+							<DescriptionEditor
+								value={description}
+								onChange={v => {
+									setDescription(v);
+									setDescriptionUserEdited(true);
+								}}
+								dirty={descriptionUserEdited}
+								onReset={resetDescription}
+							/>
+						)}
 
 						<CollapsibleExtras
 							open={showExtras}

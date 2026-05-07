@@ -21,6 +21,14 @@ export interface CloneResult {
   error?: { message: string; status?: number; body?: unknown };
 }
 
+export type DescriptionItem =
+  | { type: 'TEXT'; content: string }
+  | { type: 'IMAGE'; url: string };
+
+export interface DescriptionSections {
+  sections: Array<{ items: DescriptionItem[] }>;
+}
+
 export interface ClonePayload {
   sourceOfferId: string;
   paramOverrides: Record<string, string>;
@@ -28,7 +36,18 @@ export interface ClonePayload {
   priceOverride?: string;
   stockOverride?: number;
   publicationStatus?: 'ACTIVE' | 'INACTIVE';
+  descriptionOverride?: DescriptionSections;
+  imagesOverride?: string[];
   dryRun?: boolean;
+}
+
+export interface OfferParameter {
+  id: string;
+  name?: string;
+  values?: string[] | null;
+  valuesLabels?: string[] | null;
+  valuesIds?: string[] | null;
+  unit?: string | null;
 }
 
 export interface OfferPreview {
@@ -41,10 +60,10 @@ export interface OfferPreview {
     id: string;
     name: string;
     category?: { id: string };
-    parameters?: Array<{ id: string; name?: string; values?: string[] }>;
-    images?: Array<{ url: string }>;
+    parameters?: OfferParameter[];
+    images?: Array<{ url: string } | string>;
   } | null;
-  parameters: Array<{ id: string; name?: string; values?: string[] }>;
+  parameters: OfferParameter[];
   categoryParameters: Array<{
     id: string;
     name: string;
@@ -52,6 +71,8 @@ export interface OfferPreview {
     dictionary?: Array<{ id?: string; value: string }>;
     options?: Record<string, unknown>;
   }>;
+  description: DescriptionSections | null;
+  images: Array<{ url: string } | string>;
 }
 
 async function http<T>(

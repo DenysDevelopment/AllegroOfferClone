@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { OfferPreview } from '../api';
 import { Combobox } from './Combobox';
+import { paramDisplayValue } from './SourcePanel';
 
 export interface ParamOverride {
 	name: string;
@@ -22,8 +23,9 @@ export function OverridesEditor({ preview, overrides, onChange }: Props) {
 				cp => cp.id === p.id || cp.name.toLowerCase() === p.name?.toLowerCase(),
 			);
 			const suggestions = dictMatch?.dictionary?.map(d => d.value) ?? [];
+			const currentRaw = paramDisplayValue(p);
 			map.set(p.name, {
-				current: p.values?.[0] ?? '',
+				current: currentRaw === '—' ? '' : currentRaw,
 				suggestions,
 			});
 		}

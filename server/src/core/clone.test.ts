@@ -251,6 +251,54 @@ describe('buildCloneBody', () => {
     );
     expect((body as { publication: { status: string } }).publication.status).toBe('INACTIVE');
   });
+
+  it('replaces description when descriptionOverride is provided', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const offerWithDescription: AllegroOffer = {
+      ...baseOffer,
+      description: { sections: [{ items: [{ type: 'TEXT', content: 'old' }] }] },
+    } as AllegroOffer;
+    const { body } = await buildCloneBody(
+      fakeClient({}),
+      offerWithDescription,
+      {
+        sourceOfferId: 'src-1',
+        paramOverrides: {},
+        descriptionOverride: {
+          sections: [
+            { items: [{ type: 'TEXT', content: '<h1>new</h1>' }] },
+            { items: [{ type: 'IMAGE', url: 'https://example.com/x.jpg' }] },
+          ],
+        },
+      },
+      steps,
+    );
+    const desc = (body as { description: { sections: Array<{ items: unknown[] }> } }).description;
+    expect(desc.sections).toHaveLength(2);
+    expect(desc.sections[0].items[0]).toEqual({ type: 'TEXT', content: '<h1>new</h1>' });
+  });
+
+  it('replaces offer-level images when imagesOverride is provided', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const offerWithImages: AllegroOffer = {
+      ...baseOffer,
+      images: [{ url: 'https://example.com/old.jpg' }],
+    } as AllegroOffer;
+    const { body } = await buildCloneBody(
+      fakeClient({}),
+      offerWithImages,
+      {
+        sourceOfferId: 'src-1',
+        paramOverrides: {},
+        imagesOverride: ['https://example.com/a.jpg', 'https://example.com/b.jpg'],
+      },
+      steps,
+    );
+    expect((body as { images: Array<{ url: string }> }).images).toEqual([
+      { url: 'https://example.com/a.jpg' },
+      { url: 'https://example.com/b.jpg' },
+    ]);
+  });
 });
 
 describe('cloneOffer dry run', () => {
