@@ -577,7 +577,6 @@ function CreatedResult({ product }: { product: ProposedProduct }) {
 		navigator.clipboard?.writeText(product.id).catch(() => {});
 	};
 	const status = product.publication?.status ?? 'создан';
-	const productUrl = `https://allegro.pl/product/${product.id}`;
 	const sellerPanelUrl = 'https://allegro.pl/moje-allegro-sprzedaz/asortyment';
 	return (
 		<section className='panel border-ok/30'>
@@ -601,15 +600,7 @@ function CreatedResult({ product }: { product: ProposedProduct }) {
 						категория {product.category.id}
 					</div>
 				)}
-				<div className='flex flex-wrap gap-2 pt-2 border-t border-border-muted'>
-					<a
-						href={productUrl}
-						target='_blank'
-						rel='noreferrer'
-						className='btn btn-ghost h-8 px-3 text-[12px]'
-						title={status === 'PROPOSED' ? 'Будет работать после модерации' : 'Открыть в Allegro'}>
-						Открыть в Allegro →
-					</a>
+				<div className='pt-2 border-t border-border-muted'>
 					<a
 						href={sellerPanelUrl}
 						target='_blank'
