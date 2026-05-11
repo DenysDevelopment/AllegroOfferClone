@@ -277,11 +277,38 @@ export async function buildCloneBody(
 		});
 	}
 
+	// When a target product is bound, the OFFER body should not carry source's
+	// product-level data (category/parameters/images/description/name) — Allegro
+	// pulls those from the catalog product card. Otherwise source's mismatched
+	// category/parameters will fight the new product and produce 422.
+	//
+	// We still honour explicit operator overrides (nameOverride, imagesOverride,
+	// descriptionOverride), since those are deliberately per-offer changes.
+	const isTargetBind = Boolean(options.targetProductId);
+
+	const baseOffer = isTargetBind
+		? stripProductLevelFields(source)
+		: { ...source };
+
 	const body = stripReadonlyFields({
-		...source,
-		name: newName,
-		description: overriddenDescription,
-		images: overriddenImages,
+		...baseOffer,
+		// Name: keep source-derived only when not bound to a different product.
+		// On target-bind we let the catalog name through, unless operator typed one.
+		...(options.nameOverride
+			? { name: options.nameOverride }
+			: isTargetBind
+				? {}
+				: { name: newName }),
+		...(options.descriptionOverride
+			? { description: options.descriptionOverride }
+			: isTargetBind
+				? {}
+				: { description: overriddenDescription }),
+		...(options.imagesOverride
+			? { images: options.imagesOverride.map(url => ({ url })) }
+			: isTargetBind
+				? {}
+				: { images: overriddenImages }),
 		productSet: [
 			{
 				...(productSetItem ?? {}),
@@ -310,7 +337,31 @@ export async function buildCloneBody(
 		},
 	});
 
+	if (isTargetBind) {
+		steps.push({
+			level: 'info',
+			message:
+				'Привязка к каталогу: name/description/images/category/parameters берутся из карточки товара',
+		});
+	}
+
 	return { body: body as Record<string, unknown>, matchedProduct };
+}
+
+/**
+ * When binding to a catalog product, drop source offer's product-level fields
+ * so they don't override the catalog data. Keeps offer-level commercial fields
+ * (sellingMode, stock, delivery, payments, afterSalesServices, publication).
+ */
+function stripProductLevelFields(source: AllegroOffer): AllegroOffer {
+	const out: AllegroOffer = { ...source };
+	delete out.category;
+	delete out.name;
+	delete out.description;
+	delete out.images;
+	delete out.parameters;
+	delete (out as { ean?: unknown }).ean;
+	return out;
 }
 
 /**
