@@ -1,7 +1,11 @@
 services:
   app:
+    # CI builds and pushes this image to GHCR on every push to main.
+    # `build: .` is kept as a fallback for the first bootstrap (deploy-vps.sh)
+    # and for local builds (`docker compose build`). On the VPS, deploys
+    # use `docker compose pull` to fetch the prebuilt image.
+    image: ghcr.io/denysdevelopment/allegroofferclone:latest
     build: .
-    image: allegro-clone:latest
     container_name: allegro-clone
     restart: unless-stopped
     # By default we expose 3000 on loopback so a host-level Caddy can proxy.
