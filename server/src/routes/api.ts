@@ -44,6 +44,7 @@ const cloneSchema = z.object({
   publicationStatus: z.enum(['ACTIVE', 'INACTIVE']).default('INACTIVE'),
   descriptionOverride: descriptionSchema.optional(),
   imagesOverride: z.array(z.string().url()).optional(),
+  targetProductId: z.string().min(1).optional(),
   dryRun: z.boolean().default(false),
 });
 

@@ -8,7 +8,18 @@ function imageUrl(item: { url: string } | string): string {
 	return typeof item === 'string' ? item : item.url;
 }
 
-export function FindProductPanel() {
+export interface SelectedTargetProduct {
+	id: string;
+	name: string;
+}
+
+export function FindProductPanel({
+	onPick,
+	pickedId,
+}: {
+	onPick?: (p: SelectedTargetProduct) => void;
+	pickedId?: string | null;
+} = {}) {
 	const [query, setQuery] = useState('');
 	const [categoryId, setCategoryId] = useState(DEFAULT_CATEGORY_ID);
 	const [results, setResults] = useState<ProductSearchHit[]>([]);
@@ -155,7 +166,14 @@ export function FindProductPanel() {
 				</section>
 			)}
 
-			{selected && <SelectedProduct product={selected} onBack={() => setSelected(null)} />}
+			{selected && (
+				<SelectedProduct
+					product={selected}
+					onBack={() => setSelected(null)}
+					onPick={onPick}
+					isPicked={pickedId === selected.id}
+				/>
+			)}
 		</div>
 	);
 }
@@ -163,9 +181,13 @@ export function FindProductPanel() {
 function SelectedProduct({
 	product,
 	onBack,
+	onPick,
+	isPicked,
 }: {
 	product: ProductSearchHit;
 	onBack: () => void;
+	onPick?: (p: SelectedTargetProduct) => void;
+	isPicked?: boolean;
 }) {
 	const copy = () => {
 		navigator.clipboard?.writeText(product.id).catch(() => {});
@@ -235,7 +257,19 @@ function SelectedProduct({
 						</div>
 					</div>
 				)}
-				<div className='pt-2 border-t border-border-muted'>
+				<div className='pt-2 border-t border-border-muted flex gap-2 flex-wrap'>
+					{onPick && (
+						<button
+							type='button'
+							onClick={() =>
+								onPick({ id: product.id, name: product.name })
+							}
+							className={`btn h-8 px-3 text-[12px] ${
+								isPicked ? 'btn-primary' : ''
+							}`}>
+							{isPicked ? '✓ привязано к клону' : 'Использовать в клоне →'}
+						</button>
+					)}
 					<a
 						href={productUrl}
 						target='_blank'

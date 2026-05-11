@@ -34,6 +34,13 @@ export interface CloneOptions {
 	descriptionOverride?: DescriptionOverride;
 	/** Replace the offer-level image gallery (array of URLs). */
 	imagesOverride?: string[];
+	/**
+	 * Force-bind the new offer to this catalog product id, ignoring source offer's
+	 * product and any catalog search. The product card's parameters/images become
+	 * the source of truth — source offer is reduced to a "commercial template"
+	 * (price, stock, delivery, returns).
+	 */
+	targetProductId?: string;
 	/** Dry run: build the body but don't POST. */
 	dryRun?: boolean;
 }
@@ -135,6 +142,15 @@ export async function buildCloneBody(
 		throw new Error('Не удалось определить категорию оферты-источника');
 	}
 
+	// If the operator explicitly bound a target product from the catalog, swap
+	// the productSet item to point at it and skip parameter search entirely.
+	if (options.targetProductId && options.targetProductId !== sourceProductId) {
+		steps.push({
+			level: 'info',
+			message: `Привязка к товару из каталога: ${options.targetProductId}`,
+		});
+	}
+
 	const overrideEntries = Object.entries(options.paramOverrides);
 
 	// Build the desired parameter list: source params + applied overrides.
@@ -215,7 +231,9 @@ export async function buildCloneBody(
 		}
 	}
 
-	const newProduct: AllegroProduct = matchedProduct
+	const newProduct: AllegroProduct = options.targetProductId
+		? { id: options.targetProductId }
+		: matchedProduct
 		? { id: matchedProduct.id }
 		: {
 				category: { id: categoryId },
