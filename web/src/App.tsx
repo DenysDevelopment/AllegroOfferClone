@@ -125,8 +125,11 @@ export default function App() {
 	}, [preview?.id]);
 
 	// Auto-fill images and description from the source on offer load (one-time per offer).
+	// Skipped when a catalog target product is bound — product data should come from the
+	// catalog card, not be carried over from the source offer.
 	useEffect(() => {
 		if (!preview) return;
+		if (targetProduct) return;
 		if (!imagesUserEdited) {
 			const offerImgs = preview.images ?? [];
 			const productImgs = preview.product?.images ?? [];
@@ -142,9 +145,25 @@ export default function App() {
 	}, [preview?.id]);
 
 	// Auto-fill name (live-updated as overrides change) unless user has typed.
+	// Skipped when a catalog target product is bound — name comes from the catalog.
 	useEffect(() => {
+		if (targetProduct) return;
 		if (!nameUserEdited) setNameOverride(autoName);
-	}, [autoName, nameUserEdited]);
+	}, [autoName, nameUserEdited, targetProduct]);
+
+	// When a target product gets attached, wipe any product-derived state that was
+	// auto-filled from source offer. Only commercial fields (price/stock) survive —
+	// they're seller-level template values, not product-level.
+	useEffect(() => {
+		if (!targetProduct) return;
+		setImageUrls([]);
+		setImagesUserEdited(false);
+		setDescription({ sections: [] });
+		setDescriptionUserEdited(false);
+		setOverrides([]);
+		setNameOverride('');
+		setNameUserEdited(false);
+	}, [targetProduct?.id]);
 
 	// Auto-fill price/stock from source when offer loads (one-time per offer).
 	useEffect(() => {
@@ -333,13 +352,15 @@ export default function App() {
 							onLoad={loadPreview}
 						/>
 
-						<OverridesEditor
-							preview={preview}
-							overrides={overrides}
-							onChange={setOverrides}
-						/>
+						{!targetProduct && (
+							<OverridesEditor
+								preview={preview}
+								overrides={overrides}
+								onChange={setOverrides}
+							/>
+						)}
 
-						{preview && (
+						{preview && !targetProduct && (
 							<ImagesEditor
 								urls={imageUrls}
 								onChange={v => {
@@ -351,7 +372,7 @@ export default function App() {
 							/>
 						)}
 
-						{preview && (
+						{preview && !targetProduct && (
 							<DescriptionEditor
 								value={description}
 								onChange={v => {
