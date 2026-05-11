@@ -19,11 +19,10 @@ import {
 import { SourcePanel } from './components/SourcePanel';
 import { StepsLog } from './components/StepsLog';
 
-type Mode = 'clone' | 'find' | 'create';
+type Mode = 'clone' | 'create';
 
 const MODE_LABELS: Record<Mode, { tab: string; title: string }> = {
 	clone: { tab: 'Клон', title: 'Клонирование оферт' },
-	find: { tab: 'Найти товар', title: 'Поиск товара в каталоге' },
 	create: { tab: 'Создать товар', title: 'Создание товара' },
 };
 
@@ -278,7 +277,7 @@ export default function App() {
 							{MODE_LABELS[mode].title}
 						</h1>
 						<div className='flex h-8 border border-border rounded-md overflow-hidden text-[12px] font-medium'>
-							{(['clone', 'find', 'create'] as const).map((m, i, arr) => (
+							{(['clone', 'create'] as const).map((m, i, arr) => (
 								<button
 									key={m}
 									type='button'
@@ -310,11 +309,11 @@ export default function App() {
 
 				{mode === 'create' ? (
 					<NewProductPanel env={status.env} />
-				) : mode === 'find' ? (
-					<FindProductPanel />
 				) : (
 				<div className='grid grid-cols-1 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-5'>
 					<div className='space-y-4'>
+						<CatalogLookup />
+
 						<SourcePanel
 							offerId={offerId}
 							onOfferIdChange={setOfferId}
@@ -401,6 +400,27 @@ export default function App() {
 
 function Page({ children }: { children: React.ReactNode }) {
 	return <div className='min-h-screen bg-app'>{children}</div>;
+}
+
+function CatalogLookup() {
+	const [open, setOpen] = useState(false);
+	return (
+		<section className='panel'>
+			<button
+				type='button'
+				onClick={() => setOpen(o => !o)}
+				className='w-full px-4 h-11 flex items-center justify-between hover:bg-soft/40 transition border-b border-border'
+				style={{ borderBottomWidth: open ? 1 : 0 }}>
+				<span className='label'>Найти товар в каталоге</span>
+				<span className='text-[12px] text-ink-faint'>{open ? '▲' : '▼'}</span>
+			</button>
+			{open && (
+				<div className='p-3'>
+					<FindProductPanel />
+				</div>
+			)}
+		</section>
+	);
 }
 
 function Banner({ note, onDismiss }: { note: string; onDismiss: () => void }) {
