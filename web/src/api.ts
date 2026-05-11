@@ -38,6 +38,7 @@ export interface ClonePayload {
   publicationStatus?: 'ACTIVE' | 'INACTIVE';
   descriptionOverride?: DescriptionSections;
   imagesOverride?: string[];
+  targetProductId?: string;
   dryRun?: boolean;
 }
 

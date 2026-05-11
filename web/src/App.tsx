@@ -9,7 +9,10 @@ import {
 } from './api';
 import { ConnectGate } from './components/ConnectGate';
 import { DescriptionEditor } from './components/DescriptionEditor';
-import { FindProductPanel } from './components/FindProductPanel';
+import {
+	FindProductPanel,
+	type SelectedTargetProduct,
+} from './components/FindProductPanel';
 import { ImagesEditor } from './components/ImagesEditor';
 import { NewProductPanel } from './components/NewProductPanel';
 import {
@@ -58,6 +61,9 @@ export default function App() {
 	const [outcome, setOutcome] = useState<CloneResult['outcome']>(undefined);
 	const [errorBox, setErrorBox] = useState<CloneResult['error'] | null>(null);
 	const [bannerNote, setBannerNote] = useState<string | null>(null);
+	const [targetProduct, setTargetProduct] = useState<SelectedTargetProduct | null>(
+		null,
+	);
 
 	const refreshStatus = useCallback(async () => {
 		try {
@@ -211,6 +217,7 @@ export default function App() {
 		publicationStatus,
 		descriptionOverride: descriptionUserEdited ? cleanedDescription : undefined,
 		imagesOverride: imagesUserEdited ? cleanedImages : undefined,
+		targetProductId: targetProduct?.id,
 		dryRun,
 	});
 
@@ -312,7 +319,10 @@ export default function App() {
 				) : (
 				<div className='grid grid-cols-1 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-5'>
 					<div className='space-y-4'>
-						<CatalogLookup />
+						<CatalogLookup
+							picked={targetProduct}
+							onPick={setTargetProduct}
+						/>
 
 						<SourcePanel
 							offerId={offerId}
@@ -402,7 +412,13 @@ function Page({ children }: { children: React.ReactNode }) {
 	return <div className='min-h-screen bg-app'>{children}</div>;
 }
 
-function CatalogLookup() {
+function CatalogLookup({
+	picked,
+	onPick,
+}: {
+	picked: SelectedTargetProduct | null;
+	onPick: (p: SelectedTargetProduct | null) => void;
+}) {
 	const [open, setOpen] = useState(false);
 	return (
 		<section className='panel'>
@@ -411,12 +427,35 @@ function CatalogLookup() {
 				onClick={() => setOpen(o => !o)}
 				className='w-full px-4 h-11 flex items-center justify-between hover:bg-soft/40 transition border-b border-border'
 				style={{ borderBottomWidth: open ? 1 : 0 }}>
-				<span className='label'>Найти товар в каталоге</span>
+				<span className='label flex items-center gap-2'>
+					Найти товар в каталоге
+					{picked && (
+						<span className='chip border-ok/30 bg-okTint text-ok normal-case tracking-normal text-[11px] font-medium'>
+							привязан
+						</span>
+					)}
+				</span>
 				<span className='text-[12px] text-ink-faint'>{open ? '▲' : '▼'}</span>
 			</button>
+			{picked && (
+				<div className='px-4 py-2 flex items-center gap-2 text-[12px] border-b border-border-muted bg-okTint/30'>
+					<span className='text-ink-muted'>→</span>
+					<span className='text-ink truncate flex-1'>{picked.name}</span>
+					<span className='font-mono text-ink-faint text-[11px] truncate max-w-[160px]'>
+						{picked.id}
+					</span>
+					<button
+						type='button'
+						onClick={() => onPick(null)}
+						className='btn btn-ghost h-6 px-2 text-[11px]'
+						title='Снять привязку'>
+						✕
+					</button>
+				</div>
+			)}
 			{open && (
 				<div className='p-3'>
-					<FindProductPanel />
+					<FindProductPanel onPick={onPick} pickedId={picked?.id ?? null} />
 				</div>
 			)}
 		</section>
