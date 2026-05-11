@@ -236,6 +236,111 @@ export class AllegroClient {
     });
     return res.data.impliedWarranties ?? [];
   }
+
+  // ---- catalog search + product proposals ----
+
+  async matchCategories(name: string): Promise<Array<{
+    id: string;
+    name: string;
+    leaf?: boolean;
+    parent?: { id: string };
+  }>> {
+    const res = await this.withRetry<{
+      matchingCategories: Array<{ id: string; name: string; leaf?: boolean; parent?: { id: string } }>;
+    }>({
+      method: 'GET',
+      url: '/sale/matching-categories',
+      params: { name },
+    });
+    return res.data.matchingCategories ?? [];
+  }
+
+  /**
+   * Propose a new product to the Allegro catalog.
+   *
+   * Returns:
+   *   - { status: 201, product }            — created
+   *   - { status: 409, existingLocation }   — already exists (URL from Location header)
+   */
+  async proposeProduct(body: unknown): Promise<{
+    status: number;
+    product?: {
+      id: string;
+      name: string;
+      category?: { id: string };
+      images?: Array<{ url: string }>;
+      parameters?: Array<{ id: string; values?: string[]; valuesIds?: string[] }>;
+      publication?: { status: 'PROPOSED' | 'LISTED' };
+      [k: string]: unknown;
+    };
+    existingLocation?: string;
+  }> {
+    // We bypass withRetry's 4xx → AbortError because 409 here is a meaningful
+    // outcome (product already exists), not a fatal error. Use the raw http
+    // pipeline + manual token handling.
+    const token = await this.oauth.getAccessToken();
+    const res = await this.http.request({
+      method: 'POST',
+      url: '/sale/product-proposals',
+      data: body,
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    if (res.status === 201) {
+      return { status: 201, product: res.data };
+    }
+    if (res.status === 409) {
+      const location = (res.headers as Record<string, string | undefined>)['location'];
+      return { status: 409, existingLocation: location };
+    }
+    throw new AllegroApiError(res.status, res.data, this.formatError(res));
+  }
+
+  // ---- image upload (different host: upload.allegro.pl) ----
+
+  private async uploadHttp(
+    config: AxiosRequestConfig,
+  ): Promise<AxiosResponse<{ location?: string; expiresAt?: string }>> {
+    const token = await this.oauth.getAccessToken();
+    const res = await axios.request<{ location?: string; expiresAt?: string }>({
+      baseURL: this.cfg.uploadUrl,
+      validateStatus: () => true,
+      maxBodyLength: 50 * 1024 * 1024,
+      maxContentLength: 50 * 1024 * 1024,
+      ...config,
+      headers: {
+        ...(config.headers ?? {}),
+        Authorization: `Bearer ${token}`,
+        Accept: ACCEPT,
+      },
+    });
+    if (res.status >= 400) {
+      throw new AllegroApiError(res.status, res.data, this.formatError(res));
+    }
+    return res;
+  }
+
+  async uploadImageByUrl(url: string): Promise<{ location: string; expiresAt?: string }> {
+    const res = await this.uploadHttp({
+      method: 'POST',
+      url: '/sale/images',
+      data: { url },
+      headers: { 'Content-Type': ACCEPT },
+    });
+    return { location: res.data.location ?? '', expiresAt: res.data.expiresAt };
+  }
+
+  async uploadImageBinary(
+    buffer: Buffer,
+    contentType: 'image/jpeg' | 'image/png' | 'image/webp',
+  ): Promise<{ location: string; expiresAt?: string }> {
+    const res = await this.uploadHttp({
+      method: 'POST',
+      url: '/sale/images',
+      data: buffer,
+      headers: { 'Content-Type': contentType },
+    });
+    return { location: res.data.location ?? '', expiresAt: res.data.expiresAt };
+  }
 }
 
 export function isAllegroAxiosError(err: unknown): err is AxiosError {

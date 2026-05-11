@@ -10,6 +10,7 @@ import {
 import { ConnectGate } from './components/ConnectGate';
 import { DescriptionEditor } from './components/DescriptionEditor';
 import { ImagesEditor } from './components/ImagesEditor';
+import { NewProductPanel } from './components/NewProductPanel';
 import {
 	OverridesEditor,
 	type ParamOverride,
@@ -17,9 +18,12 @@ import {
 import { SourcePanel } from './components/SourcePanel';
 import { StepsLog } from './components/StepsLog';
 
+type Mode = 'clone' | 'product';
+
 export default function App() {
 	const [status, setStatus] = useState<AuthStatus | null>(null);
 	const [statusError, setStatusError] = useState<string | null>(null);
+	const [mode, setMode] = useState<Mode>('clone');
 
 	const [offerId, setOfferId] = useState('');
 	const [preview, setPreview] = useState<OfferPreview | null>(null);
@@ -262,10 +266,25 @@ export default function App() {
 
 			<div className='max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-10'>
 				<div className='flex items-center justify-between mb-5'>
-					<div>
+					<div className='flex items-center gap-3'>
 						<h1 className='text-[20px] font-semibold text-ink leading-tight'>
-							Клонирование оферт
+							{mode === 'clone' ? 'Клонирование оферт' : 'Создание товара'}
 						</h1>
+						<div className='flex h-8 border border-border rounded-md overflow-hidden text-[12px] font-medium'>
+							{(['clone', 'product'] as const).map((m, i) => (
+								<button
+									key={m}
+									type='button'
+									onClick={() => setMode(m)}
+									className={`px-3 transition ${
+										mode === m
+											? 'bg-soft text-ink'
+											: 'bg-card text-ink-muted hover:text-ink'
+									} ${i === 0 ? 'border-r border-border' : ''}`}>
+									{m === 'clone' ? 'Клон' : 'Новый товар'}
+								</button>
+							))}
+						</div>
 					</div>
 					<div className='flex items-center gap-2'>
 						<span
@@ -282,6 +301,9 @@ export default function App() {
 					</div>
 				</div>
 
+				{mode === 'product' ? (
+					<NewProductPanel env={status.env} />
+				) : (
 				<div className='grid grid-cols-1 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-5'>
 					<div className='space-y-4'>
 						<SourcePanel
@@ -362,6 +384,7 @@ export default function App() {
 						/>
 					</div>
 				</div>
+				)}
 			</div>
 		</Page>
 	);
