@@ -105,6 +105,53 @@ function safeJson(s: string): unknown {
   }
 }
 
+export interface CategoryParameter {
+  id: string;
+  name: string;
+  type: string;
+  required?: boolean;
+  unit?: string;
+  dictionary?: Array<{ id?: string; value: string }>;
+  options?: Record<string, unknown>;
+  restrictions?: Record<string, unknown>;
+}
+
+export interface MatchingCategory {
+  id: string;
+  name: string;
+  leaf?: boolean;
+  parent?: { id: string };
+}
+
+export interface ProductParameterValue {
+  id: string;
+  values?: string[];
+  valuesIds?: string[];
+}
+
+export interface ProposeProductPayload {
+  name: string;
+  category: { id: string };
+  language?: string;
+  images: string[];
+  parameters: ProductParameterValue[];
+  description?: DescriptionSections;
+}
+
+export interface ProposedProduct {
+  id: string;
+  name: string;
+  category?: { id: string };
+  images?: Array<{ url: string }>;
+  parameters?: Array<{ id: string; values?: string[]; valuesIds?: string[] }>;
+  publication?: { status: 'PROPOSED' | 'LISTED' };
+}
+
+export interface ImageUploadResponse {
+  location: string;
+  expiresAt?: string;
+}
+
 export const api = {
   authStatus: () => http<AuthStatus>('/api/auth/status'),
   loginUrl: () => http<{ url: string }>('/api/auth/login'),
@@ -120,4 +167,38 @@ export const api = {
       '/api/clone/preview',
       { json: payload },
     ),
+
+  matchCategories: (name: string) =>
+    http<{ matchingCategories: MatchingCategory[] }>(
+      `/api/categories/match?name=${encodeURIComponent(name)}`,
+    ),
+  categoryParameters: (id: string) =>
+    http<{ parameters: CategoryParameter[] }>(
+      `/api/categories/${encodeURIComponent(id)}/parameters`,
+    ),
+
+  proposeProduct: (payload: ProposeProductPayload) =>
+    http<ProposedProduct>('/api/products', { json: payload }),
+  proposeProductPreview: (payload: ProposeProductPayload) =>
+    http<{ body: unknown }>('/api/products/preview', { json: payload }),
+
+  uploadImageByUrl: (url: string) =>
+    http<ImageUploadResponse>('/api/images/upload-url', { json: { url } }),
+  uploadImageBinary: async (file: File): Promise<ImageUploadResponse> => {
+    const res = await fetch('/api/images/upload', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'Content-Type': file.type },
+      body: file,
+    });
+    const text = await res.text();
+    const data = text ? safeJson(text) : null;
+    if (!res.ok) {
+      const message =
+        (data as { message?: string })?.message ??
+        `HTTP ${res.status} ${res.statusText}`;
+      throw Object.assign(new Error(message), { status: res.status, data });
+    }
+    return data as ImageUploadResponse;
+  },
 };

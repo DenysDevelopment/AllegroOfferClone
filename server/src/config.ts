@@ -45,10 +45,12 @@ const ENDPOINTS = {
   sandbox: {
     auth: 'https://allegro.pl.allegrosandbox.pl',
     api: 'https://api.allegro.pl.allegrosandbox.pl',
+    upload: 'https://upload.allegro.pl.allegrosandbox.pl',
   },
   production: {
     auth: 'https://allegro.pl',
     api: 'https://api.allegro.pl',
+    upload: 'https://upload.allegro.pl',
   },
 } as const;
 
@@ -71,6 +73,7 @@ export function getConfig(envOverride?: AllegroEnv) {
     env,
     authUrl: ENDPOINTS[env].auth,
     apiUrl: ENDPOINTS[env].api,
+    uploadUrl: ENDPOINTS[env].upload,
     clientId: creds.clientId,
     clientSecret: creds.clientSecret,
     redirectUri: `${parsed.PUBLIC_URL}/api/auth/callback`,

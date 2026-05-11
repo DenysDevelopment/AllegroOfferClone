@@ -1,11 +1,20 @@
+import { useRef, useState } from 'react';
+
 interface Props {
 	urls: string[];
 	onChange: (next: string[]) => void;
-	dirty: boolean;
-	onReset: () => void;
+	dirty?: boolean;
+	onReset?: () => void;
+	/** When provided, shows an "Upload file" button that picks a local file and resolves to an Allegro CDN URL. */
+	onUploadFile?: (file: File) => Promise<string>;
+	/** When provided, shows an "Upload by URL" button that re-hosts an arbitrary URL to Allegro CDN. */
+	onUploadByUrl?: (url: string) => Promise<string>;
 }
 
-export function ImagesEditor({ urls, onChange, dirty, onReset }: Props) {
+export function ImagesEditor({ urls, onChange, dirty, onReset, onUploadFile, onUploadByUrl }: Props) {
+	const fileRef = useRef<HTMLInputElement | null>(null);
+	const [uploading, setUploading] = useState<'idle' | 'file' | 'url'>('idle');
+	const [error, setError] = useState<string | null>(null);
 	const update = (i: number, value: string) => {
 		const next = urls.slice();
 		next[i] = value;
@@ -24,6 +33,41 @@ export function ImagesEditor({ urls, onChange, dirty, onReset }: Props) {
 
 	const add = () => onChange([...urls, '']);
 
+	const pickFile = () => fileRef.current?.click();
+
+	const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+		const file = e.target.files?.[0];
+		if (!file || !onUploadFile) return;
+		setError(null);
+		setUploading('file');
+		try {
+			const cdnUrl = await onUploadFile(file);
+			if (cdnUrl) onChange([...urls, cdnUrl]);
+		} catch (err) {
+			setError((err as Error).message);
+		} finally {
+			setUploading('idle');
+			// reset so the same file can be re-selected
+			if (fileRef.current) fileRef.current.value = '';
+		}
+	};
+
+	const rehostByUrl = async () => {
+		if (!onUploadByUrl) return;
+		const url = window.prompt('URL картинки для перезаливки в Allegro CDN:')?.trim();
+		if (!url) return;
+		setError(null);
+		setUploading('url');
+		try {
+			const cdnUrl = await onUploadByUrl(url);
+			if (cdnUrl) onChange([...urls, cdnUrl]);
+		} catch (err) {
+			setError((err as Error).message);
+		} finally {
+			setUploading('idle');
+		}
+	};
+
 	return (
 		<section className='panel'>
 			<header className='px-4 h-11 flex items-center justify-between border-b border-border'>
@@ -39,7 +83,7 @@ export function ImagesEditor({ urls, onChange, dirty, onReset }: Props) {
 					)}
 				</span>
 				<div className='flex items-center gap-1'>
-					{dirty && (
+					{dirty && onReset && (
 						<button
 							type='button'
 							onClick={onReset}
@@ -48,14 +92,50 @@ export function ImagesEditor({ urls, onChange, dirty, onReset }: Props) {
 							сбросить
 						</button>
 					)}
+					{onUploadByUrl && (
+						<button
+							type='button'
+							onClick={rehostByUrl}
+							disabled={uploading !== 'idle'}
+							className='btn btn-ghost h-7 px-2 text-[12px]'
+							title='Перезалить URL в Allegro CDN'>
+							{uploading === 'url' ? '· · ·' : '+ URL'}
+						</button>
+					)}
+					{onUploadFile && (
+						<>
+							<button
+								type='button'
+								onClick={pickFile}
+								disabled={uploading !== 'idle'}
+								className='btn btn-ghost h-7 px-2 text-[12px]'
+								title='Загрузить файл с диска'>
+								{uploading === 'file' ? '· · ·' : '+ файл'}
+							</button>
+							<input
+								ref={fileRef}
+								type='file'
+								accept='image/jpeg,image/png,image/webp'
+								className='hidden'
+								onChange={handleFile}
+							/>
+						</>
+					)}
 					<button
 						type='button'
 						onClick={add}
 						className='btn btn-ghost h-7 px-2 text-[12px]'>
-						+ добавить
+						+ пусто
 					</button>
 				</div>
 			</header>
+			{error && (
+				<div className='px-4 pt-2'>
+					<div className='text-[12px] text-bad border border-bad/30 bg-badTint rounded-md px-2 py-1.5'>
+						{error}
+					</div>
+				</div>
+			)}
 			<div className='p-4 space-y-2'>
 				{urls.length === 0 ? (
 					<p className='text-[13px] text-ink-muted'>Пусто. Добавь URL.</p>

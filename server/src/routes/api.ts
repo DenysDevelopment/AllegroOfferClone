@@ -1,4 +1,5 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
+import express from 'express';
 import { z } from 'zod';
 import type { AllegroClient } from '../core/allegro.js';
 import { cloneOffer, buildCloneBody } from '../core/clone.js';
@@ -12,6 +13,26 @@ const descriptionSchema = z.object({
   sections: z
     .array(z.object({ items: z.array(descriptionItemSchema).min(1) }))
     .min(1),
+});
+
+const productParameterSchema = z
+  .object({
+    id: z.string().min(1),
+    values: z.array(z.string()).optional(),
+    valuesIds: z.array(z.string()).optional(),
+  })
+  .refine(
+    (p) => (p.values && p.values.length > 0) || (p.valuesIds && p.valuesIds.length > 0),
+    { message: 'parameter must have at least one of: values, valuesIds' },
+  );
+
+const proposeProductSchema = z.object({
+  name: z.string().min(1).max(75),
+  category: z.object({ id: z.string().min(1) }),
+  language: z.string().default('pl-PL'),
+  images: z.array(z.string().url()).min(1).max(16),
+  parameters: z.array(productParameterSchema).min(1),
+  description: descriptionSchema.optional(),
 });
 
 const cloneSchema = z.object({
@@ -127,6 +148,101 @@ export function apiRouter(client: AllegroClient): Router {
   r.get('/helpers/implied-warranties', async (_req, res, next) => {
     try {
       res.json(await client.listImpliedWarranties());
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // --- catalog: matching categories ---
+
+  r.get('/categories/match', async (req, res, next) => {
+    const phrase = String(req.query.name ?? req.query.phrase ?? '').trim();
+    if (!phrase) {
+      return res.status(400).json({ error: 'VALIDATION', message: 'name is required' });
+    }
+    try {
+      res.json({ matchingCategories: await client.matchCategories(phrase) });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  r.get('/categories/:id/parameters', async (req, res, next) => {
+    try {
+      res.json(await client.getCategoryParameters(req.params.id));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // --- products: propose a new product card ---
+
+  r.post('/products', async (req, res, next) => {
+    const parsed = proposeProductSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'VALIDATION', details: parsed.error.format() });
+    }
+    const { images, ...rest } = parsed.data;
+    const body = { ...rest, images: images.map((url) => ({ url })) };
+    try {
+      const result = await client.proposeProduct(body);
+      if (result.status === 409) {
+        return res.status(409).json({
+          error: 'PRODUCT_EXISTS',
+          message: 'Такой товар уже есть в каталоге Allegro',
+          existingLocation: result.existingLocation,
+        });
+      }
+      res.status(201).json(result.product);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  r.post('/products/preview', async (req, res) => {
+    const parsed = proposeProductSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'VALIDATION', details: parsed.error.format() });
+    }
+    const { images, ...rest } = parsed.data;
+    res.json({ body: { ...rest, images: images.map((url) => ({ url })) } });
+  });
+
+  // --- images upload (rehosts to Allegro CDN) ---
+
+  r.post('/images/upload-url', async (req, res, next) => {
+    const url = z.string().url().safeParse(req.body?.url);
+    if (!url.success) {
+      return res.status(400).json({ error: 'VALIDATION', message: 'valid url required' });
+    }
+    try {
+      res.json(await client.uploadImageByUrl(url.data));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  const allowedImageMime = new Set(['image/jpeg', 'image/png', 'image/webp']);
+  const rawImage = express.raw({ type: () => true, limit: '12mb' });
+
+  r.post('/images/upload', rawImage, async (req: Request, res, next) => {
+    const ct = String(req.headers['content-type'] ?? '').toLowerCase();
+    if (!allowedImageMime.has(ct)) {
+      return res.status(415).json({
+        error: 'UNSUPPORTED_MEDIA_TYPE',
+        message: 'Content-Type must be image/jpeg, image/png, or image/webp',
+      });
+    }
+    if (!Buffer.isBuffer(req.body) || req.body.length === 0) {
+      return res.status(400).json({ error: 'VALIDATION', message: 'empty body' });
+    }
+    try {
+      res.json(
+        await client.uploadImageBinary(
+          req.body,
+          ct as 'image/jpeg' | 'image/png' | 'image/webp',
+        ),
+      );
     } catch (e) {
       next(e);
     }
