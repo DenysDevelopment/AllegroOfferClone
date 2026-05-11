@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useRef, useState } from 'react';
 import type { DescriptionItem, DescriptionSections } from '../api';
 
 interface Props {
@@ -199,13 +199,9 @@ export function DescriptionEditor({
 													dangerouslySetInnerHTML={{ __html: it.content }}
 												/>
 											) : (
-												<textarea
-													className='input font-mono text-[12px] min-h-[120px]'
-													placeholder='HTML контент…'
+												<RichTextarea
 													value={it.content}
-													onChange={e =>
-														updateItem(sIdx, iIdx, { content: e.target.value })
-													}
+													onChange={v => updateItem(sIdx, iIdx, { content: v })}
 												/>
 											)}
 										</div>
@@ -267,5 +263,145 @@ export function DescriptionEditor({
 				)}
 			</div>
 		</section>
+	);
+}
+
+/**
+ * Textarea with a tiny toolbar producing Allegro-allowed HTML
+ * (p, h1, h2, ul, ol, li, strong). Operates on the current selection:
+ * wraps it in tags or builds a list out of selected lines.
+ */
+function RichTextarea({
+	value,
+	onChange,
+}: {
+	value: string;
+	onChange: (next: string) => void;
+}) {
+	const ref = useRef<HTMLTextAreaElement | null>(null);
+
+	const wrap = (open: string, close: string) => {
+		const ta = ref.current;
+		if (!ta) return;
+		const start = ta.selectionStart;
+		const end = ta.selectionEnd;
+		const selected = value.slice(start, end);
+		const next =
+			value.slice(0, start) +
+			open +
+			selected +
+			close +
+			value.slice(end);
+		onChange(next);
+		// restore selection inside the inserted block
+		requestAnimationFrame(() => {
+			ta.focus();
+			ta.selectionStart = start + open.length;
+			ta.selectionEnd = start + open.length + selected.length;
+		});
+	};
+
+	const makeList = (kind: 'ul' | 'ol') => {
+		const ta = ref.current;
+		if (!ta) return;
+		const start = ta.selectionStart;
+		const end = ta.selectionEnd;
+		const selected = value.slice(start, end) || 'элемент 1\nэлемент 2';
+		const lines = selected
+			.split(/\r?\n/)
+			.map(l => l.trim())
+			.filter(Boolean);
+		const items = lines.length ? lines : ['элемент'];
+		const html = `<${kind}>${items.map(l => `<li>${l}</li>`).join('')}</${kind}>`;
+		const next = value.slice(0, start) + html + value.slice(end);
+		onChange(next);
+		requestAnimationFrame(() => {
+			ta.focus();
+			ta.selectionStart = start;
+			ta.selectionEnd = start + html.length;
+		});
+	};
+
+	const insertAtCaret = (snippet: string, caretOffset?: number) => {
+		const ta = ref.current;
+		if (!ta) return;
+		const start = ta.selectionStart;
+		const end = ta.selectionEnd;
+		const next = value.slice(0, start) + snippet + value.slice(end);
+		onChange(next);
+		requestAnimationFrame(() => {
+			ta.focus();
+			const pos = start + (caretOffset ?? snippet.length);
+			ta.selectionStart = pos;
+			ta.selectionEnd = pos;
+		});
+	};
+
+	const Btn = ({
+		label,
+		title,
+		onClick,
+	}: {
+		label: React.ReactNode;
+		title: string;
+		onClick: () => void;
+	}) => (
+		<button
+			type='button'
+			onMouseDown={e => e.preventDefault()}
+			onClick={onClick}
+			title={title}
+			className='h-7 px-2 text-[11px] font-medium border-r border-border last:border-r-0 bg-card text-ink-muted hover:text-ink hover:bg-soft transition'>
+			{label}
+		</button>
+	);
+
+	return (
+		<div className='space-y-1'>
+			<div className='flex border border-border rounded-md overflow-hidden w-fit'>
+				<Btn
+					label={<span className='font-bold'>B</span>}
+					title='Полужирный <strong>'
+					onClick={() => wrap('<strong>', '</strong>')}
+				/>
+				<Btn
+					label='H1'
+					title='Заголовок <h1>'
+					onClick={() => wrap('<h1>', '</h1>')}
+				/>
+				<Btn
+					label='H2'
+					title='Подзаголовок <h2>'
+					onClick={() => wrap('<h2>', '</h2>')}
+				/>
+				<Btn
+					label='¶'
+					title='Параграф <p>'
+					onClick={() => wrap('<p>', '</p>')}
+				/>
+				<Btn
+					label='UL'
+					title='Маркированный список'
+					onClick={() => makeList('ul')}
+				/>
+				<Btn
+					label='OL'
+					title='Нумерованный список'
+					onClick={() => makeList('ol')}
+				/>
+				<Btn
+					label='↵'
+					title='Параграф-сниппет'
+					onClick={() => insertAtCaret('\n<p></p>', 4)}
+				/>
+			</div>
+			<textarea
+				ref={ref}
+				className='input font-mono text-[12px] min-h-[140px]'
+				placeholder='Выдели текст и кликни кнопку, или пиши HTML вручную. Allegro принимает только: p, h1, h2, ul, ol, li, strong.'
+				value={value}
+				onChange={e => onChange(e.target.value)}
+			/>
+		</div>
 	);
 }

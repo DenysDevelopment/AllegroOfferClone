@@ -320,13 +320,33 @@ export class AllegroClient {
   }
 
   async uploadImageByUrl(url: string): Promise<{ location: string; expiresAt?: string }> {
-    const res = await this.uploadHttp({
-      method: 'POST',
-      url: '/sale/images',
-      data: { url },
-      headers: { 'Content-Type': ACCEPT },
+    // We do NOT use Allegro's "upload by link" mode (`POST /sale/images { url }`),
+    // because when the URL is already on Allegro's CDN (a.allegroimg.com/…) the
+    // service dedupes and returns the SAME URL — which then fails as
+    // ConstraintViolationException.DescriptionImageNotAttached on product proposals.
+    //
+    // Instead, fetch bytes ourselves and re-upload as binary. That guarantees a
+    // fresh upload entry that's "attachable" to the new proposal.
+    const dl = await axios.get<ArrayBuffer>(url, {
+      responseType: 'arraybuffer',
+      timeout: 30_000,
+      maxContentLength: 12 * 1024 * 1024,
+      validateStatus: () => true,
     });
-    return { location: res.data.location ?? '', expiresAt: res.data.expiresAt };
+    if (dl.status >= 400) {
+      throw new AllegroApiError(
+        dl.status,
+        null,
+        `Не удалось скачать картинку (${dl.status}) ${url}`,
+      );
+    }
+    const rawCt = String(dl.headers['content-type'] ?? '')
+      .toLowerCase()
+      .split(';')[0]
+      .trim();
+    const ct: 'image/jpeg' | 'image/png' | 'image/webp' =
+      rawCt === 'image/png' || rawCt === 'image/webp' ? rawCt : 'image/jpeg';
+    return this.uploadImageBinary(Buffer.from(dl.data), ct);
   }
 
   async uploadImageBinary(
