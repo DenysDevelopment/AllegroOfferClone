@@ -192,7 +192,6 @@ function SelectedProduct({
 	const copy = () => {
 		navigator.clipboard?.writeText(product.id).catch(() => {});
 	};
-	const productUrl = `https://allegro.pl/product/${product.id}`;
 	return (
 		<section className='panel border-ok/30'>
 			<header className='px-4 h-11 flex items-center justify-between border-b border-ok/30 bg-okTint'>
@@ -257,8 +256,8 @@ function SelectedProduct({
 						</div>
 					</div>
 				)}
-				<div className='pt-2 border-t border-border-muted flex gap-2 flex-wrap'>
-					{onPick && (
+				{onPick && (
+					<div className='pt-2 border-t border-border-muted'>
 						<button
 							type='button'
 							onClick={() =>
@@ -269,15 +268,8 @@ function SelectedProduct({
 							}`}>
 							{isPicked ? '✓ привязано к клону' : 'Использовать в клоне →'}
 						</button>
-					)}
-					<a
-						href={productUrl}
-						target='_blank'
-						rel='noreferrer'
-						className='btn btn-ghost h-8 px-3 text-[12px]'>
-						Открыть в Allegro →
-					</a>
-				</div>
+					</div>
+				)}
 			</div>
 		</section>
 	);
