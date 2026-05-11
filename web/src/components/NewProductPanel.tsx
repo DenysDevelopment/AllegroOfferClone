@@ -15,31 +15,100 @@ const DEFAULT_CATEGORY_ID = '491'; // Laptopy → Komputery → Elektronika
 
 // Allegro's standardized description accepts only a strict HTML subset.
 // Anything outside this set triggers 422 VALIDATION_ERROR "Nieprawidłowy podzbiór HTML".
-const ALLEGRO_ALLOWED_TAGS = new Set([
-	'p',
-	'h1',
-	'h2',
-	'h3',
-	'ul',
-	'ol',
-	'li',
-	'strong',
-	'b',
-]);
+// Confirmed allowed: p, h1, h2, ul, ol, li, strong.
+// Notes: <b> is rewritten to <strong>, <br> to a paragraph split, <h3>+ are dropped,
+// raw text at the top level is wrapped in <p> (Allegro rejects bare text between blocks).
+const ALLEGRO_BLOCK_TAGS = new Set(['p', 'h1', 'h2', 'ul', 'ol']);
+const ALLEGRO_INLINE_TAGS = new Set(['strong']);
+const ALLEGRO_LIST_CHILD_TAG = 'li';
 
 function sanitizeAllegroHtml(html: string): string {
-	let s = html;
-	// drop <script>/<style>/<iframe> with their content
-	s = s.replace(/<(script|style|iframe)\b[^>]*>[\s\S]*?<\/\1>/gi, '');
-	// drop HTML comments
-	s = s.replace(/<!--[\s\S]*?-->/g, '');
-	// rewrite every remaining tag: strip attributes; drop tag entirely if not whitelisted
-	s = s.replace(/<(\/?)\s*([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g, (_m, slash, tag) => {
-		const t = (tag as string).toLowerCase();
-		if (!ALLEGRO_ALLOWED_TAGS.has(t)) return '';
-		return `<${slash}${t}>`;
-	});
-	return s.trim();
+	if (!html.trim()) return '';
+	const doc = new DOMParser().parseFromString(
+		`<!doctype html><html><body>${html}</body></html>`,
+		'text/html',
+	);
+	const out: Node[] = [];
+	let inlineBuffer: Node[] = [];
+
+	const flushInline = () => {
+		const hasContent = inlineBuffer.some(
+			n =>
+				(n.nodeType === Node.TEXT_NODE && (n.textContent ?? '').trim()) ||
+				n.nodeType === Node.ELEMENT_NODE,
+		);
+		if (hasContent) {
+			const p = doc.createElement('p');
+			for (const n of inlineBuffer) p.appendChild(n);
+			out.push(p);
+		}
+		inlineBuffer = [];
+	};
+
+	const rebuild = (el: Element): Node[] => {
+		const tag = el.tagName.toLowerCase();
+		// <br> turns into paragraph break — render as empty inline marker; outer logic flushes <p>.
+		if (tag === 'br') return [doc.createTextNode('\n\n')];
+		// <b> → <strong>
+		const finalTag = tag === 'b' ? 'strong' : tag;
+		const isAllowed =
+			ALLEGRO_BLOCK_TAGS.has(finalTag) ||
+			ALLEGRO_INLINE_TAGS.has(finalTag) ||
+			finalTag === ALLEGRO_LIST_CHILD_TAG;
+		// Recurse into children first
+		const childNodes: Node[] = [];
+		for (const child of Array.from(el.childNodes)) {
+			if (child.nodeType === Node.TEXT_NODE) {
+				childNodes.push(doc.createTextNode(child.textContent ?? ''));
+			} else if (child.nodeType === Node.ELEMENT_NODE) {
+				childNodes.push(...rebuild(child as Element));
+			}
+		}
+		if (!isAllowed) {
+			// unwrap: bubble children up
+			return childNodes;
+		}
+		const fresh = doc.createElement(finalTag);
+		for (const c of childNodes) fresh.appendChild(c);
+		return [fresh];
+	};
+
+	for (const child of Array.from(doc.body.childNodes)) {
+		if (child.nodeType === Node.TEXT_NODE) {
+			const t = child.textContent ?? '';
+			if (t.includes('\n\n')) {
+				// paragraph split coming from <br><br>
+				const parts = t.split(/\n\n+/);
+				for (let i = 0; i < parts.length; i++) {
+					if (parts[i]) inlineBuffer.push(doc.createTextNode(parts[i]));
+					if (i < parts.length - 1) flushInline();
+				}
+			} else if (t.trim()) {
+				inlineBuffer.push(doc.createTextNode(t));
+			}
+		} else if (child.nodeType === Node.ELEMENT_NODE) {
+			const built = rebuild(child as Element);
+			for (const n of built) {
+				if (n.nodeType === Node.TEXT_NODE) {
+					inlineBuffer.push(n);
+				} else if (
+					n.nodeType === Node.ELEMENT_NODE &&
+					ALLEGRO_BLOCK_TAGS.has((n as Element).tagName.toLowerCase())
+				) {
+					flushInline();
+					out.push(n);
+				} else {
+					inlineBuffer.push(n);
+				}
+			}
+		}
+	}
+	flushInline();
+
+	const container = doc.createElement('div');
+	for (const n of out) container.appendChild(n);
+	// Drop empty <p></p>
+	return container.innerHTML.replace(/<p>\s*<\/p>/g, '').trim();
 }
 
 type CreateState =
@@ -149,28 +218,43 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 		});
 	};
 
-	const buildPayload = () => {
+	const buildPayload = async () => {
 		const parameters: ProductParameterValue[] = Object.values(values).filter(
 			v =>
 				(v.values && v.values.some(s => s.trim().length > 0)) ||
 				(v.valuesIds && v.valuesIds.length > 0),
 		);
-		const cleanedDescription = (() => {
-			const cleaned = description.sections
-				.map(s => ({
-					items: s.items
-						.map(it =>
-							it.type === 'TEXT'
-								? { type: 'TEXT' as const, content: sanitizeAllegroHtml(it.content) }
-								: it,
-						)
-						.filter(it =>
-							it.type === 'TEXT' ? it.content.trim() : it.url.trim(),
-						),
-				}))
-				.filter(s => s.items.length > 0);
-			return cleaned.length ? { sections: cleaned } : undefined;
-		})();
+
+		// Allegro rejects description IMAGE items whose URLs aren't freshly uploaded
+		// for THIS proposal (ConstraintViolationException.DescriptionImageNotAttached).
+		// We re-upload each image URL through /api/images/upload-url to get a fresh,
+		// attachable upload URL.
+		const sections: DescriptionSections['sections'] = [];
+		for (const s of description.sections) {
+			const items: typeof s.items = [];
+			for (const it of s.items) {
+				if (it.type === 'TEXT') {
+					const cleaned = sanitizeAllegroHtml(it.content);
+					if (cleaned.trim()) items.push({ type: 'TEXT', content: cleaned });
+				} else {
+					const trimmed = it.url.trim();
+					if (!trimmed) continue;
+					try {
+						const r = await api.uploadImageByUrl(trimmed);
+						items.push({ type: 'IMAGE', url: r.location });
+					} catch (err) {
+						throw new Error(
+							`Не удалось перезалить картинку описания (${trimmed}): ${
+								(err as Error).message
+							}`,
+						);
+					}
+				}
+			}
+			if (items.length > 0) sections.push({ items });
+		}
+		const cleanedDescription = sections.length > 0 ? { sections } : undefined;
+
 		return {
 			name: name.trim(),
 			category: { id: categoryId.trim() },
@@ -183,10 +267,12 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 
 	const runDryRun = async () => {
 		setPreview(null);
-		setState({ kind: 'idle' });
+		setState({ kind: 'working' });
 		try {
-			const r = await api.proposeProductPreview(buildPayload());
+			const payload = await buildPayload();
+			const r = await api.proposeProductPreview(payload);
 			setPreview(r.body);
+			setState({ kind: 'idle' });
 		} catch (e) {
 			setState({
 				kind: 'err',
@@ -206,7 +292,8 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 		setState({ kind: 'working' });
 		setPreview(null);
 		try {
-			const product = await api.proposeProduct(buildPayload());
+			const payload = await buildPayload();
+			const product = await api.proposeProduct(payload);
 			setState({ kind: 'ok', product });
 		} catch (e) {
 			const err = e as {
