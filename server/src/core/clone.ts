@@ -41,6 +41,14 @@ export interface CloneOptions {
 	 * (price, stock, delivery, returns).
 	 */
 	targetProductId?: string;
+	/**
+	 * Only meaningful when `targetProductId` is set. Mirrors Allegro's UI choice:
+	 *   false (default) → 'Tak, zgadzam się' — use Catalog data (strip source's
+	 *     product-level fields, let catalog product drive name/description/images/parameters).
+	 *   true → 'Nie, chcę zostawić własne dane' — keep source offer's product-level
+	 *     fields, just swap productSet[0].product.id to the target.
+	 */
+	useOwnOfferData?: boolean;
 	/** Dry run: build the body but don't POST. */
 	dryRun?: boolean;
 }
@@ -277,14 +285,15 @@ export async function buildCloneBody(
 		});
 	}
 
-	// When a target product is bound, the OFFER body should not carry source's
-	// product-level data (category/parameters/images/description/name) — Allegro
+	// When a target product is bound AND operator chose 'use catalog data',
+	// the OFFER body should not carry source's product-level data — Allegro
 	// pulls those from the catalog product card. Otherwise source's mismatched
 	// category/parameters will fight the new product and produce 422.
 	//
-	// We still honour explicit operator overrides (nameOverride, imagesOverride,
-	// descriptionOverride), since those are deliberately per-offer changes.
-	const isTargetBind = Boolean(options.targetProductId);
+	// If operator chose 'keep own data' (useOwnOfferData=true), we keep source's
+	// fields and only swap productSet[0].product.id.
+	const isTargetBind =
+		Boolean(options.targetProductId) && !options.useOwnOfferData;
 
 	const baseOffer = isTargetBind
 		? stripProductLevelFields(source)

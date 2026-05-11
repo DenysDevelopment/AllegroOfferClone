@@ -64,6 +64,11 @@ export default function App() {
 	const [targetProduct, setTargetProduct] = useState<SelectedTargetProduct | null>(
 		null,
 	);
+	// When binding to a catalog product, Allegro offers the same choice in its UI:
+	// 'Tak, zgadzam się na zmianę danych na te z Katalogu Produktów' vs
+	// 'Nie, chcę zostawić własne dane'. We default to 'use catalog data' (the safer
+	// path — catalog name/description/images are canonical for that productId).
+	const [useOwnOfferData, setUseOwnOfferData] = useState(false);
 
 	const refreshStatus = useCallback(async () => {
 		try {
@@ -125,11 +130,11 @@ export default function App() {
 	}, [preview?.id]);
 
 	// Auto-fill images and description from the source on offer load (one-time per offer).
-	// Skipped when a catalog target product is bound — product data should come from the
-	// catalog card, not be carried over from the source offer.
+	// Skipped when a catalog target product is bound AND we're using catalog data.
+	// If user picked "оставить свои данные" — we still auto-fill from source.
 	useEffect(() => {
 		if (!preview) return;
-		if (targetProduct) return;
+		if (targetProduct && !useOwnOfferData) return;
 		if (!imagesUserEdited) {
 			const offerImgs = preview.images ?? [];
 			const productImgs = preview.product?.images ?? [];
@@ -145,17 +150,16 @@ export default function App() {
 	}, [preview?.id]);
 
 	// Auto-fill name (live-updated as overrides change) unless user has typed.
-	// Skipped when a catalog target product is bound — name comes from the catalog.
+	// Skipped when a catalog target product is bound AND we're using catalog data.
 	useEffect(() => {
-		if (targetProduct) return;
+		if (targetProduct && !useOwnOfferData) return;
 		if (!nameUserEdited) setNameOverride(autoName);
-	}, [autoName, nameUserEdited, targetProduct]);
+	}, [autoName, nameUserEdited, targetProduct, useOwnOfferData]);
 
-	// When a target product gets attached, wipe any product-derived state that was
-	// auto-filled from source offer. Only commercial fields (price/stock) survive —
-	// they're seller-level template values, not product-level.
+	// When a target product gets attached AND we're in "use catalog data" mode,
+	// wipe any product-derived state that was auto-filled from source offer.
 	useEffect(() => {
-		if (!targetProduct) return;
+		if (!targetProduct || useOwnOfferData) return;
 		setImageUrls([]);
 		setImagesUserEdited(false);
 		setDescription({ sections: [] });
@@ -163,7 +167,7 @@ export default function App() {
 		setOverrides([]);
 		setNameOverride('');
 		setNameUserEdited(false);
-	}, [targetProduct?.id]);
+	}, [targetProduct?.id, useOwnOfferData]);
 
 	// Auto-fill price/stock from source when offer loads (one-time per offer).
 	useEffect(() => {
@@ -237,6 +241,7 @@ export default function App() {
 		descriptionOverride: descriptionUserEdited ? cleanedDescription : undefined,
 		imagesOverride: imagesUserEdited ? cleanedImages : undefined,
 		targetProductId: targetProduct?.id,
+		useOwnOfferData: targetProduct ? useOwnOfferData : undefined,
 		dryRun,
 	});
 
@@ -341,6 +346,8 @@ export default function App() {
 						<CatalogLookup
 							picked={targetProduct}
 							onPick={setTargetProduct}
+							useOwnData={useOwnOfferData}
+							onChangeUseOwnData={setUseOwnOfferData}
 						/>
 
 						<SourcePanel
@@ -352,7 +359,7 @@ export default function App() {
 							onLoad={loadPreview}
 						/>
 
-						{!targetProduct && (
+						{(!targetProduct || useOwnOfferData) && (
 							<OverridesEditor
 								preview={preview}
 								overrides={overrides}
@@ -360,7 +367,7 @@ export default function App() {
 							/>
 						)}
 
-						{preview && !targetProduct && (
+						{preview && (!targetProduct || useOwnOfferData) && (
 							<ImagesEditor
 								urls={imageUrls}
 								onChange={v => {
@@ -372,7 +379,7 @@ export default function App() {
 							/>
 						)}
 
-						{preview && !targetProduct && (
+						{preview && (!targetProduct || useOwnOfferData) && (
 							<DescriptionEditor
 								value={description}
 								onChange={v => {
@@ -436,9 +443,13 @@ function Page({ children }: { children: React.ReactNode }) {
 function CatalogLookup({
 	picked,
 	onPick,
+	useOwnData,
+	onChangeUseOwnData,
 }: {
 	picked: SelectedTargetProduct | null;
 	onPick: (p: SelectedTargetProduct | null) => void;
+	useOwnData: boolean;
+	onChangeUseOwnData: (v: boolean) => void;
 }) {
 	const [open, setOpen] = useState(false);
 	return (
@@ -459,20 +470,48 @@ function CatalogLookup({
 				<span className='text-[12px] text-ink-faint'>{open ? '▲' : '▼'}</span>
 			</button>
 			{picked && (
-				<div className='px-4 py-2 flex items-center gap-2 text-[12px] border-b border-border-muted bg-okTint/30'>
-					<span className='text-ink-muted'>→</span>
-					<span className='text-ink truncate flex-1'>{picked.name}</span>
-					<span className='font-mono text-ink-faint text-[11px] truncate max-w-[160px]'>
-						{picked.id}
-					</span>
-					<button
-						type='button'
-						onClick={() => onPick(null)}
-						className='btn btn-ghost h-6 px-2 text-[11px]'
-						title='Снять привязку'>
-						✕
-					</button>
-				</div>
+				<>
+					<div className='px-4 py-2 flex items-center gap-2 text-[12px] border-b border-border-muted bg-okTint/30'>
+						<span className='text-ink-muted'>→</span>
+						<span className='text-ink truncate flex-1'>{picked.name}</span>
+						<span className='font-mono text-ink-faint text-[11px] truncate max-w-[160px]'>
+							{picked.id}
+						</span>
+						<button
+							type='button'
+							onClick={() => onPick(null)}
+							className='btn btn-ghost h-6 px-2 text-[11px]'
+							title='Снять привязку'>
+							✕
+						</button>
+					</div>
+					<div className='px-4 py-3 border-b border-border-muted space-y-1.5 text-[13px]'>
+						<label className='flex items-center gap-2 cursor-pointer'>
+							<input
+								type='radio'
+								name='catalog-data-mode'
+								checked={!useOwnData}
+								onChange={() => onChangeUseOwnData(false)}
+								className='accent-flame'
+							/>
+							<span className={!useOwnData ? 'text-ink' : 'text-ink-muted'}>
+								Использовать данные из каталога продуктов
+							</span>
+						</label>
+						<label className='flex items-center gap-2 cursor-pointer'>
+							<input
+								type='radio'
+								name='catalog-data-mode'
+								checked={useOwnData}
+								onChange={() => onChangeUseOwnData(true)}
+								className='accent-flame'
+							/>
+							<span className={useOwnData ? 'text-ink' : 'text-ink-muted'}>
+								Оставить свои данные (из source-оферты)
+							</span>
+						</label>
+					</div>
+				</>
 			)}
 			{open && (
 				<div className='p-3'>
