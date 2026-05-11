@@ -618,18 +618,6 @@ function CreatedResult({ product }: { product: ProposedProduct }) {
 						Мой ассортимент →
 					</a>
 				</div>
-				{status === 'PROPOSED' && (
-					<div className='text-[11px] text-ink-faint'>
-						Карточка ещё на модерации Allegro — публичная ссылка заработает после
-						одобрения. Сейчас её видно только тебе в «Мой ассортимент».
-					</div>
-				)}
-				{status === 'LISTED' && (
-					<div className='text-[11px] text-ink-faint'>
-						Карточка опубликована. Дальше нажми «Wystaw» в Allegro UI, чтобы
-						создать оферту по этому товару.
-					</div>
-				)}
 			</div>
 		</section>
 	);
