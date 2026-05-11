@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef } from 'react';
 import type { DescriptionItem, DescriptionSections } from '../api';
 
 interface Props {
@@ -18,15 +18,6 @@ export function DescriptionEditor({
 	onReset,
 }: Props) {
 	const sections = value.sections;
-	const [preview, setPreview] = useState<Set<string>>(new Set());
-
-	const togglePreview = (key: string) =>
-		setPreview(prev => {
-			const next = new Set(prev);
-			if (next.has(key)) next.delete(key);
-			else next.add(key);
-			return next;
-		});
 
 	const setSections = (next: Array<{ items: DescriptionItem[] }>) =>
 		onChange({ sections: next });
@@ -163,48 +154,15 @@ export function DescriptionEditor({
 							</div>
 
 							{s.items.map((it, iIdx) => {
-								const itemKey = `${sIdx}-${iIdx}`;
-								const isPreview = preview.has(itemKey);
 								return (
 								<div
 									key={iIdx}
 									className='grid grid-cols-[1fr_auto] gap-2 items-start'>
 									{it.type === 'TEXT' ? (
-										<div className='space-y-1'>
-											<div className='flex border border-border rounded-md overflow-hidden w-fit'>
-												{(['code', 'preview'] as const).map((mode, k) => {
-													const active =
-														(mode === 'preview') === isPreview;
-													return (
-														<button
-															key={mode}
-															type='button'
-															onClick={() => {
-																if (active) return;
-																togglePreview(itemKey);
-															}}
-															className={`px-2 h-6 text-[11px] font-medium transition ${
-																active
-																	? 'bg-soft text-ink'
-																	: 'bg-card text-ink-muted hover:text-ink'
-															} ${k === 0 ? 'border-r border-border' : ''}`}>
-															{mode === 'code' ? 'код' : 'превью'}
-														</button>
-													);
-												})}
-											</div>
-											{isPreview ? (
-												<div
-													className={`border border-border-muted rounded-md p-3 bg-card min-h-[120px] ${RENDERED_HTML_CLASS}`}
-													dangerouslySetInnerHTML={{ __html: it.content }}
-												/>
-											) : (
-												<RichTextarea
-													value={it.content}
-													onChange={v => updateItem(sIdx, iIdx, { content: v })}
-												/>
-											)}
-										</div>
+										<RichTextarea
+											value={it.content}
+											onChange={v => updateItem(sIdx, iIdx, { content: v })}
+										/>
 									) : (
 										<div className='grid grid-cols-[56px_1fr] gap-2'>
 											<div className='aspect-square w-14 h-14 border border-border rounded-md overflow-hidden bg-soft flex items-center justify-center'>
@@ -267,9 +225,9 @@ export function DescriptionEditor({
 }
 
 /**
- * Textarea with a tiny toolbar producing Allegro-allowed HTML
- * (p, h1, h2, ul, ol, li, strong). Operates on the current selection:
- * wraps it in tags or builds a list out of selected lines.
+ * WYSIWYG-редактор: contentEditable + тулбар на execCommand.
+ * Видишь финальный результат сразу — никакого «код / превью» переключения.
+ * При submit весь HTML прогоняется через санитайзер под allowed-теги Allegro.
  */
 function RichTextarea({
 	value,
@@ -278,63 +236,46 @@ function RichTextarea({
 	value: string;
 	onChange: (next: string) => void;
 }) {
-	const ref = useRef<HTMLTextAreaElement | null>(null);
+	const ref = useRef<HTMLDivElement | null>(null);
+	const lastEmittedRef = useRef<string>(value);
 
-	const wrap = (open: string, close: string) => {
-		const ta = ref.current;
-		if (!ta) return;
-		const start = ta.selectionStart;
-		const end = ta.selectionEnd;
-		const selected = value.slice(start, end);
-		const next =
-			value.slice(0, start) +
-			open +
-			selected +
-			close +
-			value.slice(end);
-		onChange(next);
-		// restore selection inside the inserted block
-		requestAnimationFrame(() => {
-			ta.focus();
-			ta.selectionStart = start + open.length;
-			ta.selectionEnd = start + open.length + selected.length;
-		});
+	// Initial mount: write incoming HTML once. Configure execCommand to emit tags, not styles.
+	useEffect(() => {
+		try {
+			document.execCommand('styleWithCSS', false, 'false');
+			document.execCommand('defaultParagraphSeparator', false, 'p');
+		} catch {
+			/* legacy API; ignored if unsupported */
+		}
+	}, []);
+
+	// If parent gives us a value different from what we last emitted (e.g. external reset),
+	// update the DOM. Skip when value matches our own last emission so the caret stays put.
+	useEffect(() => {
+		const el = ref.current;
+		if (!el) return;
+		if (value !== lastEmittedRef.current) {
+			el.innerHTML = value;
+			lastEmittedRef.current = value;
+		}
+	}, [value]);
+
+	const emit = () => {
+		const el = ref.current;
+		if (!el) return;
+		const html = el.innerHTML;
+		lastEmittedRef.current = html;
+		onChange(html);
 	};
 
-	const makeList = (kind: 'ul' | 'ol') => {
-		const ta = ref.current;
-		if (!ta) return;
-		const start = ta.selectionStart;
-		const end = ta.selectionEnd;
-		const selected = value.slice(start, end) || 'элемент 1\nэлемент 2';
-		const lines = selected
-			.split(/\r?\n/)
-			.map(l => l.trim())
-			.filter(Boolean);
-		const items = lines.length ? lines : ['элемент'];
-		const html = `<${kind}>${items.map(l => `<li>${l}</li>`).join('')}</${kind}>`;
-		const next = value.slice(0, start) + html + value.slice(end);
-		onChange(next);
-		requestAnimationFrame(() => {
-			ta.focus();
-			ta.selectionStart = start;
-			ta.selectionEnd = start + html.length;
-		});
-	};
-
-	const insertAtCaret = (snippet: string, caretOffset?: number) => {
-		const ta = ref.current;
-		if (!ta) return;
-		const start = ta.selectionStart;
-		const end = ta.selectionEnd;
-		const next = value.slice(0, start) + snippet + value.slice(end);
-		onChange(next);
-		requestAnimationFrame(() => {
-			ta.focus();
-			const pos = start + (caretOffset ?? snippet.length);
-			ta.selectionStart = pos;
-			ta.selectionEnd = pos;
-		});
+	const exec = (cmd: string, arg?: string) => {
+		ref.current?.focus();
+		try {
+			document.execCommand(cmd, false, arg);
+		} catch {
+			/* unsupported in some browsers; ignored */
+		}
+		emit();
 	};
 
 	const Btn = ({
@@ -357,50 +298,58 @@ function RichTextarea({
 	);
 
 	return (
-		<div className='space-y-1'>
+		<div className='space-y-1.5'>
 			<div className='flex border border-border rounded-md overflow-hidden w-fit'>
 				<Btn
 					label={<span className='font-bold'>B</span>}
-					title='Полужирный <strong>'
-					onClick={() => wrap('<strong>', '</strong>')}
+					title='Полужирный (Ctrl+B)'
+					onClick={() => exec('bold')}
 				/>
 				<Btn
 					label='H1'
-					title='Заголовок <h1>'
-					onClick={() => wrap('<h1>', '</h1>')}
+					title='Заголовок 1'
+					onClick={() => exec('formatBlock', 'h1')}
 				/>
 				<Btn
 					label='H2'
-					title='Подзаголовок <h2>'
-					onClick={() => wrap('<h2>', '</h2>')}
+					title='Заголовок 2'
+					onClick={() => exec('formatBlock', 'h2')}
 				/>
 				<Btn
 					label='¶'
-					title='Параграф <p>'
-					onClick={() => wrap('<p>', '</p>')}
+					title='Параграф'
+					onClick={() => exec('formatBlock', 'p')}
 				/>
 				<Btn
 					label='UL'
 					title='Маркированный список'
-					onClick={() => makeList('ul')}
+					onClick={() => exec('insertUnorderedList')}
 				/>
 				<Btn
 					label='OL'
 					title='Нумерованный список'
-					onClick={() => makeList('ol')}
+					onClick={() => exec('insertOrderedList')}
 				/>
 				<Btn
-					label='↵'
-					title='Параграф-сниппет'
-					onClick={() => insertAtCaret('\n<p></p>', 4)}
+					label='⨯'
+					title='Снять форматирование'
+					onClick={() => exec('removeFormat')}
 				/>
 			</div>
-			<textarea
+			<div
 				ref={ref}
-				className='input font-mono text-[12px] min-h-[140px]'
-				placeholder='Выдели текст и кликни кнопку, или пиши HTML вручную. Allegro принимает только: p, h1, h2, ul, ol, li, strong.'
-				value={value}
-				onChange={e => onChange(e.target.value)}
+				contentEditable
+				suppressContentEditableWarning
+				onInput={emit}
+				onBlur={emit}
+				onPaste={e => {
+					// Paste as plain text to avoid copying disallowed inline styles / scripts.
+					e.preventDefault();
+					const text = e.clipboardData.getData('text/plain');
+					document.execCommand('insertText', false, text);
+				}}
+				className={`border border-border rounded-md p-3 bg-card min-h-[160px] focus:outline-none focus:ring-1 focus:ring-flame/40 ${RENDERED_HTML_CLASS}`}
+				data-placeholder='Текст описания. Выдели часть и кликни кнопку для форматирования.'
 			/>
 		</div>
 	);
