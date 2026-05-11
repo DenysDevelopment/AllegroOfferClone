@@ -140,7 +140,6 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 		sections: [],
 	});
 
-	const [preview, setPreview] = useState<unknown>(null);
 	const [state, setState] = useState<CreateState>({ kind: 'idle' });
 
 	// --- categories search (debounced) ---
@@ -265,23 +264,6 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 		};
 	};
 
-	const runDryRun = async () => {
-		setPreview(null);
-		setState({ kind: 'working' });
-		try {
-			const payload = await buildPayload();
-			const r = await api.proposeProductPreview(payload);
-			setPreview(r.body);
-			setState({ kind: 'idle' });
-		} catch (e) {
-			setState({
-				kind: 'err',
-				message: (e as Error).message,
-				body: (e as { data?: unknown })?.data,
-			});
-		}
-	};
-
 	const runCreate = async () => {
 		if (
 			!window.confirm(
@@ -290,7 +272,6 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 		)
 			return;
 		setState({ kind: 'working' });
-		setPreview(null);
 		try {
 			const payload = await buildPayload();
 			const product = await api.proposeProduct(payload);
@@ -482,33 +463,15 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 				разрешены, всё остальное автоматически вырежется при отправке.
 			</div>
 
-			<div className='flex gap-2 sticky bottom-4'>
+			<div className='sticky bottom-4'>
 				<button
 					type='button'
-					className='btn flex-1'
-					disabled={!canSubmit}
-					onClick={runDryRun}>
-					Dry run
-				</button>
-				<button
-					type='button'
-					className='btn btn-primary flex-1'
+					className='btn btn-primary w-full'
 					disabled={!canSubmit}
 					onClick={runCreate}>
 					{state.kind === 'working' ? 'создаю · · ·' : 'Создать товар'}
 				</button>
 			</div>
-
-			{preview != null && state.kind === 'idle' && (
-				<section className='panel'>
-					<header className='px-4 h-11 flex items-center border-b border-border'>
-						<span className='label'>Превью тела запроса</span>
-					</header>
-					<pre className='p-4 text-[11px] leading-snug font-mono overflow-x-auto max-h-96 text-ink-muted'>
-						{JSON.stringify(preview, null, 2)}
-					</pre>
-				</section>
-			)}
 
 			{state.kind === 'ok' && <CreatedResult product={state.product} />}
 			{state.kind === 'exists' && (
