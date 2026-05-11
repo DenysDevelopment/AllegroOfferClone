@@ -39,6 +39,8 @@ export interface ClonePayload {
   descriptionOverride?: DescriptionSections;
   imagesOverride?: string[];
   targetProductId?: string;
+  /** Only meaningful when targetProductId is set. true → keep source offer's name/description/images/parameters; false (default) → let catalog product drive them. */
+  useOwnOfferData?: boolean;
   dryRun?: boolean;
 }
 
