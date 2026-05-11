@@ -13,6 +13,35 @@ import { ImagesEditor } from './ImagesEditor';
 
 const DEFAULT_CATEGORY_ID = '471';
 
+// Allegro's standardized description accepts only a strict HTML subset.
+// Anything outside this set triggers 422 VALIDATION_ERROR "Nieprawidłowy podzbiór HTML".
+const ALLEGRO_ALLOWED_TAGS = new Set([
+	'p',
+	'h1',
+	'h2',
+	'h3',
+	'ul',
+	'ol',
+	'li',
+	'strong',
+	'b',
+]);
+
+function sanitizeAllegroHtml(html: string): string {
+	let s = html;
+	// drop <script>/<style>/<iframe> with their content
+	s = s.replace(/<(script|style|iframe)\b[^>]*>[\s\S]*?<\/\1>/gi, '');
+	// drop HTML comments
+	s = s.replace(/<!--[\s\S]*?-->/g, '');
+	// rewrite every remaining tag: strip attributes; drop tag entirely if not whitelisted
+	s = s.replace(/<(\/?)\s*([a-zA-Z][a-zA-Z0-9]*)\b[^>]*>/g, (_m, slash, tag) => {
+		const t = (tag as string).toLowerCase();
+		if (!ALLEGRO_ALLOWED_TAGS.has(t)) return '';
+		return `<${slash}${t}>`;
+	});
+	return s.trim();
+}
+
 type CreateState =
 	| { kind: 'idle' }
 	| { kind: 'working' }
@@ -31,12 +60,16 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 	const [paramsError, setParamsError] = useState<string | null>(null);
 
 	// Map paramId → { values?, valuesIds? } — what user picked/typed
-	const [values, setValues] = useState<Record<string, ProductParameterValue>>({});
+	const [values, setValues] = useState<Record<string, ProductParameterValue>>(
+		{},
+	);
 
 	const [name, setName] = useState('');
 	const [language] = useState('pl-PL');
 	const [images, setImages] = useState<string[]>([]);
-	const [description, setDescription] = useState<DescriptionSections>({ sections: [] });
+	const [description, setDescription] = useState<DescriptionSections>({
+		sections: [],
+	});
 
 	const [preview, setPreview] = useState<unknown>(null);
 	const [state, setState] = useState<CreateState>({ kind: 'idle' });
@@ -54,7 +87,7 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 		const t = setTimeout(() => {
 			api
 				.matchCategories(q)
-				.then((r) => {
+				.then(r => {
 					if (searchSeqRef.current === seq)
 						setMatches(r.matchingCategories ?? []);
 				})
@@ -80,11 +113,11 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 		setParamsError(null);
 		api
 			.categoryParameters(categoryId.trim())
-			.then((r) => {
+			.then(r => {
 				if (paramsSeqRef.current !== seq) return;
 				setParams(r.parameters ?? []);
 			})
-			.catch((e) => {
+			.catch(e => {
 				if (paramsSeqRef.current !== seq) return;
 				setParamsError((e as Error).message);
 				setParams([]);
@@ -94,14 +127,14 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 			});
 	}, [categoryId]);
 
-	const required = useMemo(() => params.filter((p) => p.required), [params]);
-	const optional = useMemo(() => params.filter((p) => !p.required), [params]);
+	const required = useMemo(() => params.filter(p => p.required), [params]);
+	const optional = useMemo(() => params.filter(p => !p.required), [params]);
 
 	const setParamValue = (
 		p: CategoryParameter,
 		raw: { text?: string; dictId?: string },
 	) => {
-		setValues((prev) => {
+		setValues(prev => {
 			const next = { ...prev };
 			if (!raw.text && !raw.dictId) {
 				delete next[p.id];
@@ -118,25 +151,31 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 
 	const buildPayload = () => {
 		const parameters: ProductParameterValue[] = Object.values(values).filter(
-			(v) =>
-				(v.values && v.values.some((s) => s.trim().length > 0)) ||
+			v =>
+				(v.values && v.values.some(s => s.trim().length > 0)) ||
 				(v.valuesIds && v.valuesIds.length > 0),
 		);
 		const cleanedDescription = (() => {
 			const cleaned = description.sections
-				.map((s) => ({
-					items: s.items.filter((it) =>
-						it.type === 'TEXT' ? it.content.trim() : it.url.trim(),
-					),
+				.map(s => ({
+					items: s.items
+						.map(it =>
+							it.type === 'TEXT'
+								? { type: 'TEXT' as const, content: sanitizeAllegroHtml(it.content) }
+								: it,
+						)
+						.filter(it =>
+							it.type === 'TEXT' ? it.content.trim() : it.url.trim(),
+						),
 				}))
-				.filter((s) => s.items.length > 0);
+				.filter(s => s.items.length > 0);
 			return cleaned.length ? { sections: cleaned } : undefined;
 		})();
 		return {
 			name: name.trim(),
 			category: { id: categoryId.trim() },
 			language,
-			images: images.map((u) => u.trim()).filter(Boolean),
+			images: images.map(u => u.trim()).filter(Boolean),
 			parameters,
 			...(cleanedDescription ? { description: cleanedDescription } : {}),
 		};
@@ -158,7 +197,11 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 	};
 
 	const runCreate = async () => {
-		if (!window.confirm(`Создать товар «${name.trim() || '?'}» в каталоге Allegro?`))
+		if (
+			!window.confirm(
+				`Создать товар «${name.trim() || '?'}» в каталоге Allegro?`,
+			)
+		)
 			return;
 		setState({ kind: 'working' });
 		setPreview(null);
@@ -166,7 +209,10 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 			const product = await api.proposeProduct(buildPayload());
 			setState({ kind: 'ok', product });
 		} catch (e) {
-			const err = e as { status?: number; data?: { existingLocation?: string; message?: string } };
+			const err = e as {
+				status?: number;
+				data?: { existingLocation?: string; message?: string };
+			};
 			if (err.status === 409) {
 				setState({ kind: 'exists', location: err.data?.existingLocation });
 			} else {
@@ -192,7 +238,7 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 	const canSubmit =
 		!!name.trim() &&
 		!!categoryId.trim() &&
-		images.filter((u) => u.trim()).length > 0 &&
+		images.filter(u => u.trim()).length > 0 &&
 		Object.keys(values).length > 0 &&
 		state.kind !== 'working';
 
@@ -212,28 +258,31 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 							<input
 								className='input'
 								value={categoryId}
-								onChange={(e) => setCategoryId(e.target.value.replace(/\D/g, ''))}
-								placeholder='например, 471'
+								onChange={e => setCategoryId(e.target.value.replace(/\D/g, ''))}
+								placeholder='471'
 							/>
 						</label>
 						<label className='block'>
 							<span className='label block mb-1.5'>
-								или поиск по имени
+								поиск по имени
 								{searching && (
-									<span className='text-ink-faint normal-case font-normal'> · · ·</span>
+									<span className='text-ink-faint normal-case font-normal'>
+										{' '}
+										· · ·
+									</span>
 								)}
 							</span>
 							<input
 								className='input'
 								value={categoryQuery}
-								onChange={(e) => setCategoryQuery(e.target.value)}
-								placeholder='например, ноутбуки'
+								onChange={e => setCategoryQuery(e.target.value)}
+								placeholder='например, laptopy'
 							/>
 						</label>
 					</div>
 					{matches.length > 0 && (
 						<div className='border border-border-muted rounded-md max-h-48 overflow-y-auto'>
-							{matches.map((m) => (
+							{matches.map(m => (
 								<button
 									key={m.id}
 									type='button'
@@ -268,9 +317,7 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 					{paramsLoading && (
 						<p className='text-[13px] text-ink-muted'>загрузка параметров…</p>
 					)}
-					{paramsError && (
-						<p className='text-[13px] text-bad'>{paramsError}</p>
-					)}
+					{paramsError && <p className='text-[13px] text-bad'>{paramsError}</p>}
 					{!paramsLoading && !paramsError && params.length === 0 && (
 						<p className='text-[13px] text-ink-muted'>Введи Category ID.</p>
 					)}
@@ -279,12 +326,12 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 							<div className='text-[11px] text-flame uppercase tracking-wide font-semibold'>
 								Обязательные
 							</div>
-							{required.map((p) => (
+							{required.map(p => (
 								<ParamRow
 									key={p.id}
 									param={p}
 									value={values[p.id]}
-									onChange={(raw) => setParamValue(p, raw)}
+									onChange={raw => setParamValue(p, raw)}
 								/>
 							))}
 						</div>
@@ -295,12 +342,12 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 								Необязательные ({optional.length})
 							</summary>
 							<div className='space-y-2 pt-2'>
-								{optional.map((p) => (
+								{optional.map(p => (
 									<ParamRow
 										key={p.id}
 										param={p}
 										value={values[p.id]}
-										onChange={(raw) => setParamValue(p, raw)}
+										onChange={raw => setParamValue(p, raw)}
 									/>
 								))}
 							</div>
@@ -317,7 +364,7 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 					<input
 						className='input'
 						value={name}
-						onChange={(e) => setName(e.target.value)}
+						onChange={e => setName(e.target.value)}
 						placeholder='Например, "Lenovo IdeaPad 5 16GB 512GB SSD"'
 						maxLength={75}
 					/>
@@ -340,6 +387,13 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 				dirty={false}
 				onReset={() => setDescription({ sections: [] })}
 			/>
+			<div className='text-[11px] text-ink-faint -mt-2 px-1'>
+				Allegro принимает только: <code>&lt;p&gt;</code>{' '}
+				<code>&lt;h1&gt;</code> <code>&lt;h2&gt;</code> <code>&lt;h3&gt;</code>{' '}
+				<code>&lt;ul&gt;</code> <code>&lt;ol&gt;</code> <code>&lt;li&gt;</code>{' '}
+				<code>&lt;strong&gt;</code> <code>&lt;b&gt;</code>. Атрибуты не
+				разрешены, всё остальное автоматически вырежется при отправке.
+			</div>
 
 			<div className='flex gap-2 sticky bottom-4'>
 				<button
@@ -411,7 +465,8 @@ function ParamRow({
 	value: ProductParameterValue | undefined;
 	onChange: (raw: { text?: string; dictId?: string }) => void;
 }) {
-	const isDict = param.type === 'dictionary' && (param.dictionary?.length ?? 0) > 0;
+	const isDict =
+		param.type === 'dictionary' && (param.dictionary?.length ?? 0) > 0;
 	const dictMap = useMemo(() => {
 		const m = new Map<string, string>(); // value text → id
 		for (const d of param.dictionary ?? []) {
@@ -425,7 +480,7 @@ function ParamRow({
 		(() => {
 			const id = value?.valuesIds?.[0];
 			if (!id) return '';
-			const found = param.dictionary?.find((d) => d.id === id);
+			const found = param.dictionary?.find(d => d.id === id);
 			return found?.value ?? '';
 		})();
 
@@ -445,24 +500,28 @@ function ParamRow({
 			{isDict ? (
 				<Combobox
 					value={currentText}
-					onChange={(v) => {
+					onChange={v => {
 						const id = dictMap.get(v);
 						if (id) onChange({ dictId: id });
 						else onChange({ text: v });
 					}}
-					options={(param.dictionary ?? []).map((d) => d.value)}
+					options={(param.dictionary ?? []).map(d => d.value)}
 					placeholder='Выбери из словаря'
 				/>
 			) : (
 				<input
 					className='input'
 					value={currentText}
-					onChange={(e) => onChange({ text: e.target.value })}
+					onChange={e => onChange({ text: e.target.value })}
 					placeholder={
-						param.type === 'integer' || param.type === 'float' ? 'число' : 'текст'
+						param.type === 'integer' || param.type === 'float'
+							? 'число'
+							: 'текст'
 					}
 					inputMode={
-						param.type === 'integer' || param.type === 'float' ? 'decimal' : 'text'
+						param.type === 'integer' || param.type === 'float'
+							? 'decimal'
+							: 'text'
 					}
 				/>
 			)}
@@ -499,8 +558,8 @@ function CreatedResult({ product }: { product: ProposedProduct }) {
 					</div>
 				)}
 				<div className='text-[12px] text-ink-faint pt-2 border-t border-border-muted'>
-					Дальше: открой Allegro UI и нажми «Wystaw» на этом товаре, чтобы создать
-					оферту.
+					Дальше: открой Allegro UI и нажми «Wystaw» на этом товаре, чтобы
+					создать оферту.
 				</div>
 			</div>
 		</section>
