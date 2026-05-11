@@ -9,6 +9,7 @@ import {
 } from './api';
 import { ConnectGate } from './components/ConnectGate';
 import { DescriptionEditor } from './components/DescriptionEditor';
+import { FindProductPanel } from './components/FindProductPanel';
 import { ImagesEditor } from './components/ImagesEditor';
 import { NewProductPanel } from './components/NewProductPanel';
 import {
@@ -18,7 +19,13 @@ import {
 import { SourcePanel } from './components/SourcePanel';
 import { StepsLog } from './components/StepsLog';
 
-type Mode = 'clone' | 'product';
+type Mode = 'clone' | 'find' | 'create';
+
+const MODE_LABELS: Record<Mode, { tab: string; title: string }> = {
+	clone: { tab: 'Клон', title: 'Клонирование оферт' },
+	find: { tab: 'Найти товар', title: 'Поиск товара в каталоге' },
+	create: { tab: 'Создать товар', title: 'Создание товара' },
+};
 
 export default function App() {
 	const [status, setStatus] = useState<AuthStatus | null>(null);
@@ -268,10 +275,10 @@ export default function App() {
 				<div className='flex items-center justify-between mb-5'>
 					<div className='flex items-center gap-3'>
 						<h1 className='text-[20px] font-semibold text-ink leading-tight'>
-							{mode === 'clone' ? 'Клонирование оферт' : 'Создание товара'}
+							{MODE_LABELS[mode].title}
 						</h1>
 						<div className='flex h-8 border border-border rounded-md overflow-hidden text-[12px] font-medium'>
-							{(['clone', 'product'] as const).map((m, i) => (
+							{(['clone', 'find', 'create'] as const).map((m, i, arr) => (
 								<button
 									key={m}
 									type='button'
@@ -280,8 +287,8 @@ export default function App() {
 										mode === m
 											? 'bg-soft text-ink'
 											: 'bg-card text-ink-muted hover:text-ink'
-									} ${i === 0 ? 'border-r border-border' : ''}`}>
-									{m === 'clone' ? 'Клон' : 'Новый товар'}
+									} ${i < arr.length - 1 ? 'border-r border-border' : ''}`}>
+									{MODE_LABELS[m].tab}
 								</button>
 							))}
 						</div>
@@ -301,8 +308,10 @@ export default function App() {
 					</div>
 				</div>
 
-				{mode === 'product' ? (
+				{mode === 'create' ? (
 					<NewProductPanel env={status.env} />
+				) : mode === 'find' ? (
+					<FindProductPanel />
 				) : (
 				<div className='grid grid-cols-1 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-5'>
 					<div className='space-y-4'>

@@ -175,6 +175,37 @@ export function apiRouter(client: AllegroClient): Router {
     }
   });
 
+  // --- products: search & lookup existing catalog ---
+
+  r.get('/products/search', async (req, res, next) => {
+    const phrase = String(req.query.phrase ?? req.query.name ?? '').trim();
+    if (!phrase) {
+      return res
+        .status(400)
+        .json({ error: 'VALIDATION', message: 'phrase is required' });
+    }
+    const categoryId = req.query.categoryId
+      ? String(req.query.categoryId)
+      : undefined;
+    const limit = req.query.limit
+      ? Math.min(50, Math.max(1, Number(req.query.limit)))
+      : 20;
+    try {
+      const products = await client.searchProducts({ phrase, categoryId, limit });
+      res.json({ products });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  r.get('/products/:id', async (req, res, next) => {
+    try {
+      res.json(await client.getProduct(req.params.id));
+    } catch (e) {
+      next(e);
+    }
+  });
+
   // --- products: propose a new product card ---
 
   r.post('/products', async (req, res, next) => {
