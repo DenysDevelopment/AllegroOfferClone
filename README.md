@@ -151,6 +151,52 @@ https://your-domain.tld/api/auth/callback
 ```
 **Точное совпадение** обязательно (включая trailing slash — лучше без него).
 
+### 4.5. CI/CD через GitHub Actions
+
+Workflow: [`.github/workflows/ci-cd.yml`](.github/workflows/ci-cd.yml). На каждый PR и push в `main` гоняются lint/test/build + sanity-сборка Docker. На push в `main` — пуш образа в GHCR и автодеплой на VPS по SSH.
+
+**Pipeline:**
+```
+test (PR + push main) ──▶ build-and-push (push main) ──▶ deploy (push main)
+   lint, vitest,            ghcr.io push: latest +         ssh root@VPS:
+   tsc+vite, docker build   sha-<short>                   git pull
+                                                          docker compose pull
+                                                          docker compose up -d
+                                                          health check /api/health
+```
+
+**Что нужно настроить один раз:**
+
+1. **GitHub Actions secrets** (Settings → Secrets and variables → Actions → New repository secret):
+   - `VPS_HOST` — `173.242.62.97`
+   - `VPS_USER` — `root`
+   - `VPS_SSH_KEY` — полный приватный SSH-ключ (включая `-----BEGIN OPENSSH PRIVATE KEY-----` / `END`), без passphrase, чей публичный ключ лежит в `/root/.ssh/authorized_keys` на VPS.
+
+   Сгенерировать пару (локально):
+   ```bash
+   ssh-keygen -t ed25519 -f ~/.ssh/allegro_ci -C "github-actions" -N ""
+   # Положи публичный на VPS:
+   ssh-copy-id -i ~/.ssh/allegro_ci.pub root@173.242.62.97
+   # Скопируй приватный в GitHub secret VPS_SSH_KEY:
+   cat ~/.ssh/allegro_ci
+   ```
+
+2. **Сделать GHCR-пакет публичным** (после первого успешного push в `main`):
+   - Открой `https://github.com/users/DenysDevelopment/packages/container/allegroofferclone/settings`
+   - В разделе *Danger Zone* → **Change visibility** → *Public*. Иначе VPS не сможет `docker compose pull` без `docker login`.
+
+3. **На VPS должен быть проект в `/opt/allegro-clone`** (он там уже есть после `deploy-vps.sh`). Деплой делает `git pull` (для актуального `docker-compose.yml`) + `docker compose pull` (образ из GHCR).
+
+**Откат на предыдущую версию:**
+```bash
+# На VPS:
+cd /opt/allegro-clone
+docker pull ghcr.io/denysdevelopment/allegroofferclone:sha-<short>
+docker tag ghcr.io/denysdevelopment/allegroofferclone:sha-<short> ghcr.io/denysdevelopment/allegroofferclone:latest
+docker compose up -d
+```
+Список последних SHA-тегов — на странице пакета в GitHub.
+
 ---
 
 ## 5. Архитектура
