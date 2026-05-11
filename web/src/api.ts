@@ -152,6 +152,14 @@ export interface ImageUploadResponse {
   expiresAt?: string;
 }
 
+export interface ProductSearchHit {
+  id: string;
+  name: string;
+  category?: { id: string };
+  parameters?: OfferParameter[];
+  images?: Array<{ url: string } | string>;
+}
+
 export const api = {
   authStatus: () => http<AuthStatus>('/api/auth/status'),
   loginUrl: () => http<{ url: string }>('/api/auth/login'),
@@ -181,6 +189,18 @@ export const api = {
     http<ProposedProduct>('/api/products', { json: payload }),
   proposeProductPreview: (payload: ProposeProductPayload) =>
     http<{ body: unknown }>('/api/products/preview', { json: payload }),
+
+  searchProducts: (opts: { phrase: string; categoryId?: string; limit?: number }) => {
+    const qs = new URLSearchParams();
+    qs.set('phrase', opts.phrase);
+    if (opts.categoryId) qs.set('categoryId', opts.categoryId);
+    if (opts.limit) qs.set('limit', String(opts.limit));
+    return http<{ products: ProductSearchHit[] }>(`/api/products/search?${qs.toString()}`);
+  },
+  getProduct: (id: string) =>
+    http<ProductSearchHit & { description?: DescriptionSections }>(
+      `/api/products/${encodeURIComponent(id)}`,
+    ),
 
   uploadImageByUrl: (url: string) =>
     http<ImageUploadResponse>('/api/images/upload-url', { json: { url } }),
