@@ -11,7 +11,7 @@ import { Combobox } from './Combobox';
 import { DescriptionEditor } from './DescriptionEditor';
 import { ImagesEditor } from './ImagesEditor';
 
-const DEFAULT_CATEGORY_ID = '471';
+const DEFAULT_CATEGORY_ID = '491'; // Laptopy → Komputery → Elektronika
 
 // Allegro's standardized description accepts only a strict HTML subset.
 // Anything outside this set triggers 422 VALIDATION_ERROR "Nieprawidłowy podzbiór HTML".
@@ -259,7 +259,7 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 								className='input'
 								value={categoryId}
 								onChange={e => setCategoryId(e.target.value.replace(/\D/g, ''))}
-								placeholder='471'
+								placeholder='491'
 							/>
 						</label>
 						<label className='block'>
