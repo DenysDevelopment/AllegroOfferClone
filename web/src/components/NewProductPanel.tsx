@@ -455,13 +455,6 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 				dirty={false}
 				onReset={() => setDescription({ sections: [] })}
 			/>
-			<div className='text-[11px] text-ink-faint -mt-2 px-1'>
-				Allegro принимает только: <code>&lt;p&gt;</code>{' '}
-				<code>&lt;h1&gt;</code> <code>&lt;h2&gt;</code> <code>&lt;h3&gt;</code>{' '}
-				<code>&lt;ul&gt;</code> <code>&lt;ol&gt;</code> <code>&lt;li&gt;</code>{' '}
-				<code>&lt;strong&gt;</code> <code>&lt;b&gt;</code>. Атрибуты не
-				разрешены, всё остальное автоматически вырежется при отправке.
-			</div>
 
 			<div className='sticky bottom-4'>
 				<button
