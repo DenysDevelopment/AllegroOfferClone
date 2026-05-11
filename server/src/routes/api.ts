@@ -45,7 +45,6 @@ const cloneSchema = z.object({
   descriptionOverride: descriptionSchema.optional(),
   imagesOverride: z.array(z.string().url()).optional(),
   targetProductId: z.string().min(1).optional(),
-  useOwnOfferData: z.boolean().optional(),
   dryRun: z.boolean().default(false),
 });
 
