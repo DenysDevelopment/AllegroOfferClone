@@ -576,14 +576,15 @@ function CreatedResult({ product }: { product: ProposedProduct }) {
 	const copy = () => {
 		navigator.clipboard?.writeText(product.id).catch(() => {});
 	};
+	const status = product.publication?.status ?? 'создан';
+	const productUrl = `https://allegro.pl/product/${product.id}`;
+	const sellerPanelUrl = 'https://allegro.pl/moje-allegro-sprzedaz/asortyment';
 	return (
 		<section className='panel border-ok/30'>
 			<header className='px-4 h-11 flex items-center justify-between border-b border-ok/30 bg-okTint'>
-				<span className='label text-ok'>
-					Товар {product.publication?.status ?? 'создан'}
-				</span>
+				<span className='label text-ok'>Товар {status}</span>
 			</header>
-			<div className='p-4 space-y-2 text-[13px]'>
+			<div className='p-4 space-y-3 text-[13px]'>
 				<div className='flex items-center gap-2 flex-wrap'>
 					<span className='text-ink-muted'>productId:</span>
 					<span className='font-mono text-ink break-all'>{product.id}</span>
@@ -600,10 +601,35 @@ function CreatedResult({ product }: { product: ProposedProduct }) {
 						категория {product.category.id}
 					</div>
 				)}
-				<div className='text-[12px] text-ink-faint pt-2 border-t border-border-muted'>
-					Дальше: открой Allegro UI и нажми «Wystaw» на этом товаре, чтобы
-					создать оферту.
+				<div className='flex flex-wrap gap-2 pt-2 border-t border-border-muted'>
+					<a
+						href={productUrl}
+						target='_blank'
+						rel='noreferrer'
+						className='btn btn-ghost h-8 px-3 text-[12px]'
+						title={status === 'PROPOSED' ? 'Будет работать после модерации' : 'Открыть в Allegro'}>
+						Открыть в Allegro →
+					</a>
+					<a
+						href={sellerPanelUrl}
+						target='_blank'
+						rel='noreferrer'
+						className='btn btn-ghost h-8 px-3 text-[12px]'>
+						Мой ассортимент →
+					</a>
 				</div>
+				{status === 'PROPOSED' && (
+					<div className='text-[11px] text-ink-faint'>
+						Карточка ещё на модерации Allegro — публичная ссылка заработает после
+						одобрения. Сейчас её видно только тебе в «Мой ассортимент».
+					</div>
+				)}
+				{status === 'LISTED' && (
+					<div className='text-[11px] text-ink-faint'>
+						Карточка опубликована. Дальше нажми «Wystaw» в Allegro UI, чтобы
+						создать оферту по этому товару.
+					</div>
+				)}
 			</div>
 		</section>
 	);
