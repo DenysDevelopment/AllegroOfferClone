@@ -1,6 +1,6 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
-import type { AllegroEnv, AppConfig } from '../config.js';
+import type { AppConfig } from '../config.js';
 
 export interface TokenSet {
   accessToken: string;
@@ -15,13 +15,13 @@ export interface TokenSet {
 export class TokenStore {
   constructor(private readonly cfg: AppConfig) {}
 
-  private filePath(env: AllegroEnv = this.cfg.env): string {
-    return this.cfg.tokenFile(env);
+  private filePath(): string {
+    return this.cfg.tokenFile();
   }
 
-  async load(env: AllegroEnv = this.cfg.env): Promise<TokenSet | null> {
+  async load(): Promise<TokenSet | null> {
     try {
-      const raw = await fs.readFile(this.filePath(env), 'utf8');
+      const raw = await fs.readFile(this.filePath(), 'utf8');
       return JSON.parse(raw) as TokenSet;
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code === 'ENOENT') return null;
@@ -29,19 +29,19 @@ export class TokenStore {
     }
   }
 
-  async save(tokens: TokenSet, env: AllegroEnv = this.cfg.env): Promise<void> {
-    await fs.mkdir(path.dirname(this.filePath(env)), { recursive: true });
-    const tmp = `${this.filePath(env)}.tmp`;
+  async save(tokens: TokenSet): Promise<void> {
+    await fs.mkdir(path.dirname(this.filePath()), { recursive: true });
+    const tmp = `${this.filePath()}.tmp`;
     await fs.writeFile(tmp, JSON.stringify(tokens, null, 2), {
       mode: 0o600,
       encoding: 'utf8',
     });
-    await fs.rename(tmp, this.filePath(env));
+    await fs.rename(tmp, this.filePath());
   }
 
-  async clear(env: AllegroEnv = this.cfg.env): Promise<void> {
+  async clear(): Promise<void> {
     try {
-      await fs.unlink(this.filePath(env));
+      await fs.unlink(this.filePath());
     } catch (err) {
       if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     }

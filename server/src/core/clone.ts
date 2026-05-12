@@ -81,10 +81,16 @@ export async function buildCloneBody(
 	source: AllegroOffer,
 	options: CloneOptions,
 	steps: CloneStep[],
+	sourceClient: AllegroClient = client,
 ): Promise<{
 	body: Record<string, unknown>;
 	matchedProduct?: ProductSearchHit;
 }> {
+	// When source ≠ target, source's PROPOSED (user-suggested, not yet globally
+	// listed) product cards are NOT reusable by id — only the proposer's account
+	// can bind offers to them. We need to detect this so we can fall back to
+	// inline product data and let the target's account create its own proposal.
+	const crossAccount = sourceClient !== client;
 	const productSetItem = source.productSet?.[0];
 	const sourceProduct = productSetItem?.product;
 	const sourceProductId = sourceProduct?.id;
@@ -99,16 +105,20 @@ export async function buildCloneBody(
 	let productName = sourceProduct.name;
 	let sourceParams: AllegroParameter[] = sourceProduct.parameters ?? [];
 	let hydratedImages: unknown = sourceProduct.images;
+	let sourceProductStatus: string | undefined;
 
 	// Always fetch the canonical product when an id is present — Allegro's GET /offer
 	// response often only includes a partial product (just the id, or missing name/images),
 	// and we need a real product name + images for both the catalog search and any
-	// fallback product creation.
+	// fallback product creation. Fetch via SOURCE client: for PROPOSED cards the
+	// target account would 404, the proposer's account always has access.
 	if (sourceProductId) {
 		try {
-			const full = await client.getProduct(sourceProductId);
+			const full = await sourceClient.getProduct(sourceProductId);
 			productName = productName || full.name;
 			categoryId = categoryId ?? full.category?.id;
+			sourceProductStatus = (full as { publication?: { status?: string } })
+				.publication?.status;
 			if (sourceParams.length === 0 && full.parameters) {
 				sourceParams = full.parameters as AllegroParameter[];
 			}
@@ -120,8 +130,8 @@ export async function buildCloneBody(
 			}
 			steps.push({
 				level: 'info',
-				message: `Карточка: ${full.name}`,
-				detail: { productId: sourceProductId, categoryId },
+				message: `Карточка: ${full.name}${sourceProductStatus ? ` (${sourceProductStatus})` : ''}`,
+				detail: { productId: sourceProductId, categoryId, status: sourceProductStatus },
 			});
 		} catch (err) {
 			steps.push({
@@ -183,9 +193,37 @@ export async function buildCloneBody(
 		}
 	}
 
-	// Try to find an existing catalog product matching the new param values.
+	// Catalog search is only useful when overrides may shift the offer to a
+	// DIFFERENT product card. With no overrides we just reuse the source's
+	// productId — no API call needed and zero risk of a false-negative.
+	const hasOverrides = overrideEntries.length > 0;
+
+	// Cross-account binding only works for LISTED product cards. PROPOSED cards
+	// are private to the proposer's account, so we have to either re-propose in
+	// the target account (via inline data) or search for an equivalent LISTED card.
+	const canReuseSourceCard =
+		!!sourceProductId &&
+		(!crossAccount || sourceProductStatus !== 'PROPOSED');
+
+	if (
+		crossAccount &&
+		sourceProductId &&
+		sourceProductStatus === 'PROPOSED' &&
+		!options.targetProductId
+	) {
+		steps.push({
+			level: 'warn',
+			message:
+				'Карточка источника — PROPOSED (предложена другим аккаунтом). Целевой аккаунт не может на неё ссылаться: ищу аналог в каталоге или предложу свою.',
+		});
+	}
+
 	let matchedProduct: ProductSearchHit | undefined;
-	if (productName) {
+	// Search the catalog when there are overrides (looking for a different card)
+	// OR when source's card is unreusable across accounts (looking for an equivalent).
+	const shouldSearchCatalog =
+		hasOverrides || (sourceProductId && !canReuseSourceCard);
+	if (productName && shouldSearchCatalog) {
 		try {
 			const phrase = buildSearchPhrase(productName, oldValues);
 			steps.push({ level: 'info', message: `Ищу в каталоге: «${phrase}»` });
@@ -213,11 +251,19 @@ export async function buildCloneBody(
 		}
 	}
 
-	// Build the new product payload.
-	// When no catalog match is found, Allegro will create a new product from the data we send
-	// and requires at least one image, so we hydrate from offer / product as fallback.
+	const reusingSourceCard =
+		!options.targetProductId &&
+		!matchedProduct &&
+		!hasOverrides &&
+		canReuseSourceCard;
+
+	// When we end up with no productId at all we let Allegro derive a new product
+	// from inline data — that requires at least one image.
+	const willUseInlineProduct =
+		!options.targetProductId && !matchedProduct && !reusingSourceCard;
+
 	let fallbackImages: string[] = [];
-	if (!matchedProduct) {
+	if (willUseInlineProduct) {
 		fallbackImages = normalizeImageUrls(hydratedImages);
 		if (fallbackImages.length === 0)
 			fallbackImages = normalizeImageUrls(source.images);
@@ -233,13 +279,27 @@ export async function buildCloneBody(
 	const newProduct: AllegroProduct = options.targetProductId
 		? { id: options.targetProductId }
 		: matchedProduct
-		? { id: matchedProduct.id }
-		: {
-				category: { id: categoryId },
-				...(productName ? { name: productName } : {}),
-				parameters: desiredParams.filter(p => p.id),
-				...(fallbackImages.length ? { images: fallbackImages } : {}),
-			};
+			? { id: matchedProduct.id }
+			: reusingSourceCard
+				? { id: sourceProductId! }
+				: {
+						category: { id: categoryId },
+						...(productName ? { name: productName } : {}),
+						parameters: desiredParams.filter(p => p.id),
+						...(fallbackImages.length ? { images: fallbackImages } : {}),
+					};
+
+	if (reusingSourceCard) {
+		steps.push({
+			level: 'info',
+			message: `Привязка к карточке источника: ${sourceProductId}`,
+		});
+	} else if (willUseInlineProduct && sourceProductId && productName) {
+		steps.push({
+			level: 'info',
+			message: `Отправляю inline-карточку «${productName}» — Allegro подберёт или создаст эквивалент в target-аккаунте`,
+		});
+	}
 
 	const newName =
 		options.nameOverride ??
@@ -591,6 +651,7 @@ export function stripReadonlyFields(o: AllegroOffer): Record<string, unknown> {
 export async function cloneOffer(
 	client: AllegroClient,
 	options: CloneOptions,
+	sourceClient: AllegroClient = client,
 ): Promise<CloneResult> {
 	const steps: CloneStep[] = [];
 	const result: CloneResult = { steps, body: undefined };
@@ -599,13 +660,15 @@ export async function cloneOffer(
 		level: 'info',
 		message: `Загружаю оферту ${options.sourceOfferId}`,
 	});
-	const source = await client.getOffer(options.sourceOfferId);
+	// Source offer is read with the offer owner's credentials — only that account
+	// has access (Allegro returns 403 OfferAccessDeniedException otherwise).
+	const source = await sourceClient.getOffer(options.sourceOfferId);
 	steps.push({
 		level: 'info',
 		message: `Источник: «${source.name}» (статус: ${source.publication?.status ?? '?'})`,
 	});
 
-	const { body } = await buildCloneBody(client, source, options, steps);
+	const { body } = await buildCloneBody(client, source, options, steps, sourceClient);
 	result.body = body;
 
 	if (options.dryRun) {

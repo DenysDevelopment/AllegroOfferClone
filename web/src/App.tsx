@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
 	api,
-	type AuthStatus,
+	setActiveAccountIdGetter,
+	type AccountSummary,
 	type CloneResult,
 	type CloneStep,
 	type DescriptionSections,
 	type OfferPreview,
 } from './api';
+import { AccountSwitcher } from './components/AccountSwitcher';
 import { ConnectGate } from './components/ConnectGate';
 import { DescriptionEditor } from './components/DescriptionEditor';
 import {
@@ -19,8 +21,11 @@ import {
 	OverridesEditor,
 	type ParamOverride,
 } from './components/OverridesEditor';
+import { PublishAccountPicker } from './components/PublishAccountPicker';
 import { SourcePanel } from './components/SourcePanel';
 import { StepsLog } from './components/StepsLog';
+
+const ACTIVE_ACCOUNT_KEY = 'allegro.activeAccountId';
 
 type Mode = 'clone' | 'create';
 
@@ -30,9 +35,35 @@ const MODE_LABELS: Record<Mode, { tab: string; title: string }> = {
 };
 
 export default function App() {
-	const [status, setStatus] = useState<AuthStatus | null>(null);
+	const [accounts, setAccounts] = useState<AccountSummary[] | null>(null);
+	const [defaultAccountId, setDefaultAccountId] = useState<string>('');
+	const [activeAccountId, setActiveAccountIdState] = useState<string | null>(() => {
+		try {
+			return localStorage.getItem(ACTIVE_ACCOUNT_KEY);
+		} catch {
+			return null;
+		}
+	});
+	const [publishAccountId, setPublishAccountId] = useState<string>('');
+	const [sourceAccountId, setSourceAccountId] = useState<string>('');
 	const [statusError, setStatusError] = useState<string | null>(null);
 	const [mode, setMode] = useState<Mode>('clone');
+
+	// Wire the API layer's X-Account-Id header to our active id (live, no re-import).
+	const activeRef = useRef(activeAccountId);
+	activeRef.current = activeAccountId;
+	useEffect(() => {
+		setActiveAccountIdGetter(() => activeRef.current);
+	}, []);
+
+	const setActiveAccountId = useCallback((id: string) => {
+		setActiveAccountIdState(id);
+		try {
+			localStorage.setItem(ACTIVE_ACCOUNT_KEY, id);
+		} catch {
+			/* ignore */
+		}
+	}, []);
 
 	const [offerId, setOfferId] = useState('');
 	const [preview, setPreview] = useState<OfferPreview | null>(null);
@@ -65,21 +96,40 @@ export default function App() {
 		null,
 	);
 
-	const refreshStatus = useCallback(async () => {
+	const refreshAccounts = useCallback(async () => {
 		try {
-			const s = await api.authStatus();
-			setStatus(s);
+			const data = await api.accounts();
+			setAccounts(data.accounts);
+			setDefaultAccountId(data.defaultAccountId);
 			setStatusError(null);
+			return data;
 		} catch (e) {
 			setStatusError((e as Error).message);
+			return null;
 		}
 	}, []);
 
 	useEffect(() => {
-		refreshStatus();
+		(async () => {
+			const data = await refreshAccounts();
+			if (!data) return;
+			// If the stored active id is unknown or its account got removed,
+			// fall back to the first connected one, then the default.
+			const known = new Set(data.accounts.map(a => a.id));
+			const stored = activeRef.current;
+			let chosen: string | null = stored && known.has(stored) ? stored : null;
+			if (!chosen) {
+				const firstConnected = data.accounts.find(a => a.connected);
+				chosen = firstConnected?.id ?? data.defaultAccountId;
+			}
+			if (chosen) setActiveAccountId(chosen);
+		})();
+
 		const params = new URLSearchParams(window.location.search);
 		if (params.get('connected') === '1') {
-			setBannerNote('Подключено к Allegro.');
+			const acc = params.get('account');
+			setBannerNote(acc ? `Аккаунт "${acc}" подключён.` : 'Подключено к Allegro.');
+			if (acc) setActiveAccountId(acc);
 			window.history.replaceState({}, '', window.location.pathname);
 		} else if (params.get('error')) {
 			setBannerNote(
@@ -87,7 +137,27 @@ export default function App() {
 			);
 			window.history.replaceState({}, '', window.location.pathname);
 		}
-	}, [refreshStatus]);
+	}, [refreshAccounts, setActiveAccountId]);
+
+	// Keep publish & source targets in sync with the active account by default.
+	useEffect(() => {
+		if (activeAccountId && !publishAccountId) setPublishAccountId(activeAccountId);
+		if (activeAccountId && !sourceAccountId) setSourceAccountId(activeAccountId);
+	}, [activeAccountId, publishAccountId, sourceAccountId]);
+	useEffect(() => {
+		// When user switches active account in the header, move both pickers there.
+		// User can still pick different source/target afterwards.
+		if (activeAccountId) {
+			setPublishAccountId(activeAccountId);
+			setSourceAccountId(activeAccountId);
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
+	}, [activeAccountId]);
+
+	const activeAccount = useMemo(
+		() => accounts?.find(a => a.id === activeAccountId) ?? null,
+		[accounts, activeAccountId],
+	);
 
 	const cleanedOverrides = useMemo(() => {
 		const map: Record<string, string> = {};
@@ -184,7 +254,7 @@ export default function App() {
 		setPreviewError(null);
 		setPreview(null);
 		try {
-			const p = await api.offerPreview(offerId);
+			const p = await api.offerPreview(offerId, sourceAccountId || undefined);
 			setPreview(p);
 		} catch (e) {
 			setPreviewError((e as Error).message);
@@ -236,12 +306,16 @@ export default function App() {
 		descriptionOverride: descriptionUserEdited ? cleanedDescription : undefined,
 		imagesOverride: imagesUserEdited ? cleanedImages : undefined,
 		targetProductId: targetProduct?.id,
+		accountId: publishAccountId || undefined,
+		sourceAccountId: sourceAccountId || undefined,
 		dryRun,
 	});
 
 	const runClone = async () => {
 		if (!offerId) return;
-		if (!confirm(`Создать клон оферты ${offerId}?`)) return;
+		const targetLabel =
+			accounts?.find(a => a.id === publishAccountId)?.label ?? publishAccountId;
+		if (!confirm(`Создать клон оферты ${offerId} в аккаунте "${targetLabel}"?`)) return;
 		setWorking('clone');
 		setSteps([]);
 		setOutcome(undefined);
@@ -258,13 +332,7 @@ export default function App() {
 		}
 	};
 
-	const disconnect = async () => {
-		if (!confirm('Отключить сессию Allegro?')) return;
-		await api.disconnect();
-		await refreshStatus();
-	};
-
-	if (!status) {
+	if (!accounts) {
 		return (
 			<div className='min-h-screen flex items-center justify-center text-[13px] text-ink-muted'>
 				{statusError ? (
@@ -276,18 +344,23 @@ export default function App() {
 		);
 	}
 
-	if (!status.connected) {
+	const anyConnected = accounts.some(a => a.connected);
+	if (!anyConnected) {
 		return (
 			<Page>
 				{bannerNote && (
 					<Banner note={bannerNote} onDismiss={() => setBannerNote(null)} />
 				)}
-				<ConnectGate status={status} onConnected={refreshStatus} />
+				<ConnectGate
+					accounts={accounts}
+					defaultAccountId={defaultAccountId}
+					onConnected={refreshAccounts}
+				/>
 			</Page>
 		);
 	}
 
-	const cloneDisabled = !offerId || working !== 'idle';
+	const cloneDisabled = !offerId || working !== 'idle' || !publishAccountId;
 
 	return (
 		<Page>
@@ -318,22 +391,32 @@ export default function App() {
 						</div>
 					</div>
 					<div className='flex items-center gap-2'>
-						<span
-							className={
-								status.env === 'production'
-									? 'chip border-flame/30 bg-flame-tint text-flame'
-									: 'chip border-warn/30 bg-warnTint text-warn'
-							}></span>
-						<button
-							onClick={disconnect}
-							className='btn btn-ghost h-8 px-3 text-[12px]'>
-							выйти
-						</button>
+						{activeAccount && (
+							<span
+								className={
+									activeAccount.env === 'production'
+										? 'chip border-flame/30 bg-flame-tint text-flame'
+										: 'chip border-warn/30 bg-warnTint text-warn'
+								}>
+								{activeAccount.env === 'production' ? 'prod' : 'sand'}
+							</span>
+						)}
+						<AccountSwitcher
+							accounts={accounts}
+							activeId={activeAccountId}
+							onSwitch={setActiveAccountId}
+							onRefresh={refreshAccounts}
+						/>
 					</div>
 				</div>
 
 				{mode === 'create' ? (
-					<NewProductPanel env={status.env} />
+					<NewProductPanel
+						env={activeAccount?.env ?? 'production'}
+						accounts={accounts}
+						publishAccountId={publishAccountId}
+						onPublishAccountChange={setPublishAccountId}
+					/>
 				) : (
 				<div className='grid grid-cols-1 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-5'>
 					<div className='space-y-4'>
@@ -349,6 +432,9 @@ export default function App() {
 							loading={previewLoading}
 							error={previewError}
 							onLoad={loadPreview}
+							accounts={accounts}
+							sourceAccountId={sourceAccountId}
+							onSourceAccountChange={setSourceAccountId}
 						/>
 
 						{!targetProduct && (
@@ -403,7 +489,17 @@ export default function App() {
 							onPub={setPublicationStatus}
 						/>
 
-						<div className='sticky bottom-4'>
+						<div className='sticky bottom-4 space-y-2'>
+							<BindingStatus
+								targetProduct={targetProduct}
+								sourceProductId={preview?.product?.id}
+								sourceProductName={preview?.product?.name}
+							/>
+							<PublishAccountPicker
+								accounts={accounts}
+								value={publishAccountId}
+								onChange={setPublishAccountId}
+							/>
 							<button
 								type='button'
 								className='btn btn-primary w-full'
@@ -479,6 +575,52 @@ function CatalogLookup({
 				</div>
 			)}
 		</section>
+	);
+}
+
+/**
+ * Right above the Clone button — surfaces exactly which product card the
+ * clone will be bound to. Without this it's possible to inspect a catalog
+ * product without ever clicking "Использовать в клоне →", and discover only
+ * after publishing that the source's card was reused.
+ */
+function BindingStatus({
+	targetProduct,
+	sourceProductId,
+	sourceProductName,
+}: {
+	targetProduct: SelectedTargetProduct | null;
+	sourceProductId: string | undefined;
+	sourceProductName: string | undefined;
+}) {
+	if (targetProduct) {
+		return (
+			<div className='flex items-center gap-2 px-3 py-2 rounded-md border border-ok/40 bg-okTint text-[12px]'>
+				<span className='text-ok font-semibold'>✓ Привязка к каталогу</span>
+				<span className='text-ink truncate flex-1'>{targetProduct.name}</span>
+				<span className='font-mono text-ink-faint text-[11px] truncate max-w-[140px]'>
+					{targetProduct.id}
+				</span>
+			</div>
+		);
+	}
+	if (sourceProductId) {
+		return (
+			<div className='flex items-center gap-2 px-3 py-2 rounded-md border border-warn/40 bg-warnTint text-[12px]'>
+				<span className='text-warn font-semibold'>↻ Карточка источника</span>
+				<span className='text-ink truncate flex-1'>
+					{sourceProductName ?? '—'}
+				</span>
+				<span className='font-mono text-ink-faint text-[11px] truncate max-w-[140px]'>
+					{sourceProductId}
+				</span>
+			</div>
+		);
+	}
+	return (
+		<div className='px-3 py-2 rounded-md border border-border bg-soft/40 text-[12px] text-ink-muted'>
+			Загрузите оферту — карточка определится из productSet источника.
+		</div>
 	);
 }
 

@@ -1,8 +1,23 @@
 export interface AuthStatus {
+  accountId: string;
+  label: string;
   env: 'sandbox' | 'production';
   connected: boolean;
   hasCredentials: boolean;
   redirectUri: string;
+}
+
+export interface AccountSummary {
+  id: string;
+  label: string;
+  env: 'sandbox' | 'production';
+  hasCredentials: boolean;
+  connected: boolean;
+}
+
+export interface AccountsResponse {
+  defaultAccountId: string;
+  accounts: AccountSummary[];
 }
 
 export interface CloneStep {
@@ -40,6 +55,10 @@ export interface ClonePayload {
   imagesOverride?: string[];
   targetProductId?: string;
   dryRun?: boolean;
+  /** Optional per-request override of the publishing (target) account. */
+  accountId?: string;
+  /** Optional per-request override of the source (read) account. */
+  sourceAccountId?: string;
 }
 
 export interface OfferParameter {
@@ -76,11 +95,29 @@ export interface OfferPreview {
   images: Array<{ url: string } | string>;
 }
 
+// --- Active-account context ---
+// All API requests are tagged with X-Account-Id taken from this getter.
+// The active id is owned by App.tsx and stored in localStorage; we keep
+// the getter mutable here so api.ts can stay stateless from the caller's POV.
+let activeAccountIdGetter: () => string | null = () => null;
+
+export function setActiveAccountIdGetter(fn: () => string | null): void {
+  activeAccountIdGetter = fn;
+}
+
+function accountHeader(override?: string): Record<string, string> {
+  const id = override ?? activeAccountIdGetter();
+  return id ? { 'X-Account-Id': id } : {};
+}
+
 async function http<T>(
   path: string,
-  init?: RequestInit & { json?: unknown },
+  init?: RequestInit & { json?: unknown; accountId?: string },
 ): Promise<T> {
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...accountHeader(init?.accountId),
+  };
   const opts: RequestInit = {
     method: init?.method ?? (init?.json !== undefined ? 'POST' : 'GET'),
     credentials: 'include',
@@ -137,6 +174,8 @@ export interface ProposeProductPayload {
   images: string[];
   parameters: ProductParameterValue[];
   description?: DescriptionSections;
+  /** Optional per-request override of the publishing account. */
+  accountId?: string;
 }
 
 export interface ProposedProduct {
@@ -162,19 +201,32 @@ export interface ProductSearchHit {
 }
 
 export const api = {
+  accounts: () => http<AccountsResponse>('/api/auth/accounts'),
   authStatus: () => http<AuthStatus>('/api/auth/status'),
-  loginUrl: () => http<{ url: string }>('/api/auth/login'),
-  disconnect: () => http<{ ok: true }>('/api/auth/disconnect', { json: {} }),
+  loginUrl: (accountId?: string) => {
+    const qs = accountId ? `?account=${encodeURIComponent(accountId)}` : '';
+    return http<{ url: string }>(`/api/auth/login${qs}`);
+  },
+  disconnect: (accountId?: string) => {
+    const qs = accountId ? `?account=${encodeURIComponent(accountId)}` : '';
+    return http<{ ok: true }>(`/api/auth/disconnect${qs}`, { json: {}, accountId });
+  },
 
   me: () => http<unknown>('/api/me'),
-  offerPreview: (id: string) =>
-    http<OfferPreview>(`/api/offers/${encodeURIComponent(id)}/preview`),
+  offerPreview: (id: string, sourceAccountId?: string) =>
+    http<OfferPreview>(`/api/offers/${encodeURIComponent(id)}/preview`, {
+      accountId: sourceAccountId,
+    }),
 
-  clone: (payload: ClonePayload) => http<CloneResult>('/api/clone', { json: payload }),
+  // For clone/clonePreview: X-Account-Id is set to the SOURCE account (the
+  // offer owner). The publish target rides in body.accountId. The server
+  // reads the source offer with the header and writes the clone to the body.
+  clone: (payload: ClonePayload) =>
+    http<CloneResult>('/api/clone', { json: payload, accountId: payload.sourceAccountId }),
   clonePreview: (payload: ClonePayload) =>
     http<{ steps: CloneStep[]; body: unknown; matchedProduct?: { id: string; name: string } }>(
       '/api/clone/preview',
-      { json: payload },
+      { json: payload, accountId: payload.sourceAccountId },
     ),
 
   matchCategories: (name: string) =>
@@ -187,9 +239,9 @@ export const api = {
     ),
 
   proposeProduct: (payload: ProposeProductPayload) =>
-    http<ProposedProduct>('/api/products', { json: payload }),
+    http<ProposedProduct>('/api/products', { json: payload, accountId: payload.accountId }),
   proposeProductPreview: (payload: ProposeProductPayload) =>
-    http<{ body: unknown }>('/api/products/preview', { json: payload }),
+    http<{ body: unknown }>('/api/products/preview', { json: payload, accountId: payload.accountId }),
 
   searchProducts: (opts: { phrase: string; categoryId?: string; pageId?: string }) => {
     const qs = new URLSearchParams();
@@ -211,7 +263,7 @@ export const api = {
     const res = await fetch('/api/images/upload', {
       method: 'POST',
       credentials: 'include',
-      headers: { 'Content-Type': file.type },
+      headers: { 'Content-Type': file.type, ...accountHeader() },
       body: file,
     });
     const text = await res.text();

@@ -238,6 +238,88 @@ describe('buildCloneBody', () => {
     expect(hdd?.values).toEqual(['512 GB']);
   });
 
+  it('cross-account + PROPOSED source card → inline product (cannot reuse foreign proposal)', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const sourceClient = fakeClient({
+      productById: {
+        'PROD-256': {
+          id: 'PROD-256',
+          name: 'Lenovo IdeaPad 5',
+          category: { id: '491' },
+          parameters: baseOffer.productSet![0].product.parameters,
+          publication: { status: 'PROPOSED' },
+        },
+      },
+    });
+    const targetClient = fakeClient({ searchHits: [] });
+    const { body } = await buildCloneBody(
+      targetClient,
+      baseOffer,
+      { sourceOfferId: 'src-1', paramOverrides: {} },
+      steps,
+      sourceClient, // different instance → crossAccount === true
+    );
+    const ps = (
+      body as {
+        productSet: Array<{
+          product: { id?: string; parameters?: Array<{ name?: string }> };
+        }>;
+      }
+    ).productSet;
+    expect(ps[0].product.id).toBeUndefined();
+    expect(ps[0].product.parameters?.length).toBeGreaterThan(0);
+    expect(
+      steps.some(s => s.level === 'warn' && /PROPOSED/.test(s.message)),
+    ).toBe(true);
+  });
+
+  it('cross-account + LISTED source card → reuses source product id', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const sourceClient = fakeClient({
+      productById: {
+        'PROD-256': {
+          id: 'PROD-256',
+          name: 'Lenovo IdeaPad 5',
+          category: { id: '491' },
+          parameters: baseOffer.productSet![0].product.parameters,
+          publication: { status: 'LISTED' },
+        },
+      },
+    });
+    const targetClient = fakeClient({ searchHits: [] });
+    const { body } = await buildCloneBody(
+      targetClient,
+      baseOffer,
+      { sourceOfferId: 'src-1', paramOverrides: {} },
+      steps,
+      sourceClient,
+    );
+    const ps = (body as { productSet: Array<{ product: { id?: string } }> }).productSet;
+    expect(ps[0].product.id).toBe('PROD-256');
+  });
+
+  it('reuses source product id when no overrides are applied (no catalog search)', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    // searchProducts intentionally returns junk; the new code must NOT call it
+    // for the no-overrides path, so its return value can't poison the result.
+    const { body, matchedProduct } = await buildCloneBody(
+      fakeClient({
+        searchHits: [
+          { id: 'WRONG-PROD', name: 'unrelated', parameters: [] },
+        ],
+      }),
+      baseOffer,
+      {
+        sourceOfferId: 'src-1',
+        paramOverrides: {},
+      },
+      steps,
+    );
+    expect(matchedProduct).toBeUndefined();
+    const ps = (body as { productSet: Array<{ product: { id?: string } }> }).productSet;
+    expect(ps[0].product.id).toBe('PROD-256');
+  });
+
   it('forces publication status to INACTIVE by default', async () => {
     const steps: Parameters<typeof buildCloneBody>[3] = [];
     const { body } = await buildCloneBody(

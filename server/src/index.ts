@@ -4,10 +4,9 @@ import cors from 'cors';
 import path from 'node:path';
 import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
-import { getConfig } from './config.js';
-import { TokenStore } from './core/tokens.js';
-import { OAuthClient } from './core/oauth.js';
-import { AllegroClient, AllegroApiError } from './core/allegro.js';
+import { loadMultiConfig } from './config.js';
+import { AccountRegistry, migrateLegacyTokens } from './core/registry.js';
+import { AllegroApiError } from './core/allegro.js';
 import { authRouter } from './routes/auth.js';
 import { apiRouter } from './routes/api.js';
 
@@ -15,26 +14,33 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 async function main() {
-  const cfg = getConfig();
-  const store = new TokenStore(cfg);
-  const oauth = new OAuthClient(cfg, store);
-  const allegro = new AllegroClient(cfg, oauth);
+  const multi = loadMultiConfig();
+  await migrateLegacyTokens(multi);
+  const registry = new AccountRegistry(multi);
 
   const app = express();
   app.set('trust proxy', 1);
   app.use(express.json({ limit: '10mb' }));
-  app.use(cookieParser(cfg.sessionSecret));
+  app.use(cookieParser(multi.sessionSecret));
 
   // CORS only matters in dev when frontend runs on a different port
   if (process.env.NODE_ENV !== 'production') {
     app.use(cors({ origin: true, credentials: true }));
   }
 
-  app.use('/api/auth', authRouter(cfg, oauth));
-  app.use('/api', apiRouter(allegro));
+  app.use('/api/auth', authRouter(registry));
+  app.use('/api', apiRouter(registry));
 
   app.get('/api/health', (_req, res) => {
-    res.json({ ok: true, env: cfg.env, time: new Date().toISOString() });
+    res.json({
+      ok: true,
+      defaultAccountId: registry.defaultAccountId,
+      accounts: registry.list().map((a) => ({
+        id: a.config.accountId,
+        env: a.config.env,
+      })),
+      time: new Date().toISOString(),
+    });
   });
 
   // Static frontend (production build)
@@ -55,7 +61,6 @@ async function main() {
     });
   }
 
-  // Centralised error handler — converts Allegro errors to JSON responses
   const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
     if (err instanceof AllegroApiError) {
       console.error('[allegro]', err.status, err.message, err.body);
@@ -80,13 +85,11 @@ async function main() {
   };
   app.use(errorHandler);
 
-  app.listen(cfg.port, () => {
-    console.log(`Allegro Clone server listening on ${cfg.publicUrl} (env=${cfg.env})`);
-    if (!cfg.clientId) {
-      console.warn(
-        `⚠  No CLIENT_ID for env=${cfg.env}. ` +
-          `Set ALLEGRO_${cfg.env === 'sandbox' ? 'SANDBOX' : 'PROD'}_CLIENT_ID in .env`,
-      );
+  app.listen(multi.port, () => {
+    console.log(`Allegro Clone server listening on ${multi.publicUrl}`);
+    for (const a of registry.list()) {
+      const status = a.config.clientId ? 'creds OK' : '⚠ no CLIENT_ID';
+      console.log(`  • account "${a.config.accountId}" (${a.config.label}, env=${a.config.env}) — ${status}`);
     }
   });
 }

@@ -5,7 +5,6 @@ import { fileURLToPath } from 'node:url';
 import { z } from 'zod';
 
 // Resolve .env from the project root (search upward from this file).
-// Works for both dev (tsx watch) and prod (node dist/...) since both run from server/.
 function findEnvFile(): string | undefined {
   const here = path.dirname(fileURLToPath(import.meta.url));
   let dir = here;
@@ -27,19 +26,20 @@ if (envFile) {
 const Env = z.enum(['sandbox', 'production']);
 export type AllegroEnv = z.infer<typeof Env>;
 
-const schema = z.object({
-  ALLEGRO_ENV: Env.default('sandbox'),
-  ALLEGRO_SANDBOX_CLIENT_ID: z.string().optional(),
-  ALLEGRO_SANDBOX_CLIENT_SECRET: z.string().optional(),
-  ALLEGRO_PROD_CLIENT_ID: z.string().optional(),
-  ALLEGRO_PROD_CLIENT_SECRET: z.string().optional(),
+const globalSchema = z.object({
   PORT: z.coerce.number().default(3000),
   PUBLIC_URL: z.string().url().default('http://localhost:3000'),
   SESSION_SECRET: z.string().min(8).default('dev_secret_change_me_in_production'),
   DATA_DIR: z.string().default('./data'),
+  ALLEGRO_ENV: Env.default('sandbox'),
+  ALLEGRO_ACCOUNTS: z.string().optional(),
+  ALLEGRO_SANDBOX_CLIENT_ID: z.string().optional(),
+  ALLEGRO_SANDBOX_CLIENT_SECRET: z.string().optional(),
+  ALLEGRO_PROD_CLIENT_ID: z.string().optional(),
+  ALLEGRO_PROD_CLIENT_SECRET: z.string().optional(),
 });
 
-const parsed = schema.parse(process.env);
+const parsedGlobals = globalSchema.parse(process.env);
 
 const ENDPOINTS = {
   sandbox: {
@@ -54,37 +54,164 @@ const ENDPOINTS = {
   },
 } as const;
 
-function credsFor(env: AllegroEnv): { clientId?: string; clientSecret?: string } {
-  return env === 'sandbox'
-    ? {
-        clientId: parsed.ALLEGRO_SANDBOX_CLIENT_ID,
-        clientSecret: parsed.ALLEGRO_SANDBOX_CLIENT_SECRET,
-      }
-    : {
-        clientId: parsed.ALLEGRO_PROD_CLIENT_ID,
-        clientSecret: parsed.ALLEGRO_PROD_CLIENT_SECRET,
-      };
+const ACCOUNT_ID_RE = /^[a-z0-9][a-z0-9_-]{0,31}$/i;
+
+export interface AccountConfig {
+  accountId: string;
+  label: string;
+  env: AllegroEnv;
+  authUrl: string;
+  apiUrl: string;
+  uploadUrl: string;
+  clientId?: string;
+  clientSecret?: string;
+  redirectUri: string;
+  publicUrl: string;
+  port: number;
+  sessionSecret: string;
+  dataDir: string;
+  tokenFile(): string;
 }
 
-export function getConfig(envOverride?: AllegroEnv) {
-  const env = envOverride ?? parsed.ALLEGRO_ENV;
-  const creds = credsFor(env);
+// Backwards-compat alias — most modules still type their cfg arg as AppConfig.
+export type AppConfig = AccountConfig;
+
+export interface MultiConfig {
+  port: number;
+  publicUrl: string;
+  sessionSecret: string;
+  dataDir: string;
+  defaultAccountId: string;
+  accounts: AccountConfig[];
+}
+
+function buildAccount(args: {
+  accountId: string;
+  label: string;
+  env: AllegroEnv;
+  clientId?: string;
+  clientSecret?: string;
+}): AccountConfig {
+  const { accountId, label, env, clientId, clientSecret } = args;
+  const dataDir = path.resolve(parsedGlobals.DATA_DIR);
   return {
+    accountId,
+    label,
     env,
     authUrl: ENDPOINTS[env].auth,
     apiUrl: ENDPOINTS[env].api,
     uploadUrl: ENDPOINTS[env].upload,
-    clientId: creds.clientId,
-    clientSecret: creds.clientSecret,
-    redirectUri: `${parsed.PUBLIC_URL}/api/auth/callback`,
-    publicUrl: parsed.PUBLIC_URL,
-    port: parsed.PORT,
-    sessionSecret: parsed.SESSION_SECRET,
-    dataDir: path.resolve(parsed.DATA_DIR),
-    tokenFile(forEnv: AllegroEnv = env) {
-      return path.join(path.resolve(parsed.DATA_DIR), `tokens.${forEnv}.json`);
+    clientId,
+    clientSecret,
+    redirectUri: `${parsedGlobals.PUBLIC_URL}/api/auth/callback`,
+    publicUrl: parsedGlobals.PUBLIC_URL,
+    port: parsedGlobals.PORT,
+    sessionSecret: parsedGlobals.SESSION_SECRET,
+    dataDir,
+    tokenFile() {
+      return path.join(dataDir, `tokens.${accountId}.json`);
     },
   };
 }
 
-export type AppConfig = ReturnType<typeof getConfig>;
+function readPerAccount(id: string): {
+  label?: string;
+  env?: AllegroEnv;
+  clientId?: string;
+  clientSecret?: string;
+} {
+  const key = id.toUpperCase();
+  const env = process.env[`ALLEGRO_${key}_ENV`];
+  return {
+    label: process.env[`ALLEGRO_${key}_LABEL`],
+    env: env === 'sandbox' || env === 'production' ? env : undefined,
+    clientId: process.env[`ALLEGRO_${key}_CLIENT_ID`],
+    clientSecret: process.env[`ALLEGRO_${key}_CLIENT_SECRET`],
+  };
+}
+
+function loadFromAccountsList(rawList: string): AccountConfig[] {
+  const ids = rawList
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
+  if (ids.length === 0) return [];
+  const seen = new Set<string>();
+  const accounts: AccountConfig[] = [];
+  for (const id of ids) {
+    if (!ACCOUNT_ID_RE.test(id)) {
+      throw new Error(
+        `Invalid ALLEGRO_ACCOUNTS entry "${id}". Use [a-zA-Z0-9_-], max 32 chars, must start with alphanumeric.`,
+      );
+    }
+    const normalized = id.toLowerCase();
+    if (seen.has(normalized)) {
+      throw new Error(`Duplicate account id "${id}" in ALLEGRO_ACCOUNTS`);
+    }
+    seen.add(normalized);
+    const per = readPerAccount(id);
+    accounts.push(
+      buildAccount({
+        accountId: normalized,
+        label: per.label || id,
+        env: per.env ?? parsedGlobals.ALLEGRO_ENV,
+        clientId: per.clientId,
+        clientSecret: per.clientSecret,
+      }),
+    );
+  }
+  return accounts;
+}
+
+function loadLegacySingleAccount(): AccountConfig {
+  const env = parsedGlobals.ALLEGRO_ENV;
+  return buildAccount({
+    accountId: 'default',
+    label: 'Default',
+    env,
+    clientId:
+      env === 'sandbox'
+        ? parsedGlobals.ALLEGRO_SANDBOX_CLIENT_ID
+        : parsedGlobals.ALLEGRO_PROD_CLIENT_ID,
+    clientSecret:
+      env === 'sandbox'
+        ? parsedGlobals.ALLEGRO_SANDBOX_CLIENT_SECRET
+        : parsedGlobals.ALLEGRO_PROD_CLIENT_SECRET,
+  });
+}
+
+let cached: MultiConfig | null = null;
+
+export function loadMultiConfig(): MultiConfig {
+  if (cached) return cached;
+  const accounts = parsedGlobals.ALLEGRO_ACCOUNTS
+    ? loadFromAccountsList(parsedGlobals.ALLEGRO_ACCOUNTS)
+    : [loadLegacySingleAccount()];
+  if (accounts.length === 0) {
+    throw new Error(
+      'No Allegro accounts configured. Set ALLEGRO_ACCOUNTS in .env (or use legacy single-account vars).',
+    );
+  }
+  cached = {
+    port: parsedGlobals.PORT,
+    publicUrl: parsedGlobals.PUBLIC_URL,
+    sessionSecret: parsedGlobals.SESSION_SECRET,
+    dataDir: path.resolve(parsedGlobals.DATA_DIR),
+    defaultAccountId: accounts[0].accountId,
+    accounts,
+  };
+  return cached;
+}
+
+/**
+ * Legacy helper, kept for tests / scripts that expected a single AppConfig.
+ * Returns the default (first) account.
+ */
+export function getConfig(envOverride?: AllegroEnv): AppConfig {
+  const multi = loadMultiConfig();
+  if (envOverride) {
+    const match = multi.accounts.find((a) => a.env === envOverride);
+    if (match) return match;
+  }
+  return multi.accounts.find((a) => a.accountId === multi.defaultAccountId) ?? multi.accounts[0];
+}

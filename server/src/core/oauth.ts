@@ -21,10 +21,10 @@ export class OAuthClient {
 
   private requireCredentials() {
     if (!this.cfg.clientId || !this.cfg.clientSecret) {
+      const key = this.cfg.accountId.toUpperCase();
       throw new Error(
-        `Allegro credentials are missing for env=${this.cfg.env}. ` +
-          `Set ALLEGRO_${this.cfg.env === 'sandbox' ? 'SANDBOX' : 'PROD'}_CLIENT_ID and ` +
-          `ALLEGRO_${this.cfg.env === 'sandbox' ? 'SANDBOX' : 'PROD'}_CLIENT_SECRET in .env`,
+        `Allegro credentials are missing for account "${this.cfg.accountId}" (env=${this.cfg.env}). ` +
+          `Set ALLEGRO_${key}_CLIENT_ID and ALLEGRO_${key}_CLIENT_SECRET in .env`,
       );
     }
     return { clientId: this.cfg.clientId, clientSecret: this.cfg.clientSecret };

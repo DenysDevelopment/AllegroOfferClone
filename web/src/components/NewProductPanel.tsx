@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import {
 	api,
+	type AccountSummary,
 	type CategoryParameter,
 	type DescriptionSections,
 	type MatchingCategory,
@@ -12,6 +13,7 @@ import {
 import { Combobox } from './Combobox';
 import { DescriptionEditor } from './DescriptionEditor';
 import { ImagesEditor } from './ImagesEditor';
+import { PublishAccountPicker } from './PublishAccountPicker';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -124,7 +126,19 @@ type CreateState =
 	| { kind: 'exists'; location?: string }
 	| { kind: 'err'; message: string; body?: unknown };
 
-export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
+interface NewProductPanelProps {
+	env: 'sandbox' | 'production';
+	accounts: AccountSummary[];
+	publishAccountId: string;
+	onPublishAccountChange: (id: string) => void;
+}
+
+export function NewProductPanel({
+	env,
+	accounts,
+	publishAccountId,
+	onPublishAccountChange,
+}: NewProductPanelProps) {
 	const [categoryId, setCategoryId] = useState(DEFAULT_CATEGORY_ID);
 	const [categoryQuery, setCategoryQuery] = useState('');
 	const [matches, setMatches] = useState<MatchingCategory[]>([]);
@@ -331,6 +345,7 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 			images: images.map(u => u.trim()).filter(Boolean),
 			parameters,
 			...(cleanedDescription ? { description: cleanedDescription } : {}),
+			...(publishAccountId ? { accountId: publishAccountId } : {}),
 		};
 	};
 
@@ -532,11 +547,16 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 				onReset={() => setDescription({ sections: [] })}
 			/>
 
-			<div className='sticky bottom-4'>
+			<div className='sticky bottom-4 space-y-2'>
+				<PublishAccountPicker
+					accounts={accounts}
+					value={publishAccountId}
+					onChange={onPublishAccountChange}
+				/>
 				<button
 					type='button'
 					className='btn btn-primary w-full'
-					disabled={!canSubmit}
+					disabled={!canSubmit || !publishAccountId}
 					onClick={runCreate}>
 					{state.kind === 'working' ? 'создаю · · ·' : 'Создать товар'}
 				</button>

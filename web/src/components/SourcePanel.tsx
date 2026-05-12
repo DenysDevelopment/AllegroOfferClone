@@ -1,4 +1,4 @@
-import type { OfferParameter, OfferPreview } from '../api';
+import type { AccountSummary, OfferParameter, OfferPreview } from '../api';
 
 interface Props {
 	offerId: string;
@@ -7,6 +7,9 @@ interface Props {
 	loading: boolean;
 	error: string | null;
 	onLoad: () => void;
+	accounts: AccountSummary[];
+	sourceAccountId: string;
+	onSourceAccountChange: (id: string) => void;
 }
 
 function imageUrl(item: { url: string } | string): string {
@@ -32,6 +35,9 @@ export function SourcePanel({
 	loading,
 	error,
 	onLoad,
+	accounts,
+	sourceAccountId,
+	onSourceAccountChange,
 }: Props) {
 	const params = preview?.parameters ?? [];
 	const offerImages = preview?.images ?? [];
@@ -41,8 +47,31 @@ export function SourcePanel({
 
 	return (
 		<section className='panel'>
-			<header className='px-4 h-11 flex items-center border-b border-border'>
+			<header className='px-4 h-11 flex items-center justify-between border-b border-border'>
 				<span className='label'>Оферта</span>
+				{accounts.length > 1 && (
+					<label className='flex items-center gap-2 text-[12px]'>
+						<span className='text-ink-faint'>читать через</span>
+						<select
+							className='bg-transparent text-ink outline-none cursor-pointer border border-border rounded px-2 py-1'
+							value={sourceAccountId}
+							onChange={e => onSourceAccountChange(e.target.value)}>
+							{accounts.map(a => (
+								<option
+									key={a.id}
+									value={a.id}
+									disabled={!a.hasCredentials || !a.connected}>
+									{a.label}
+									{!a.hasCredentials
+										? ' — нет creds'
+										: !a.connected
+											? ' — не подключён'
+											: ''}
+								</option>
+							))}
+						</select>
+					</label>
+				)}
 			</header>
 			<div className='p-4 grid grid-cols-[1fr_auto] gap-2'>
 				<input

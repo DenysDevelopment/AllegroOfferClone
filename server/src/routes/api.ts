@@ -1,8 +1,9 @@
-import { Router, type Request } from 'express';
+import { Router, type Request, type RequestHandler } from 'express';
 import express from 'express';
 import { z } from 'zod';
 import type { AllegroClient } from '../core/allegro.js';
 import { cloneOffer, buildCloneBody } from '../core/clone.js';
+import type { AccountRegistry } from '../core/registry.js';
 
 const descriptionItemSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('TEXT'), content: z.string() }),
@@ -48,12 +49,48 @@ const cloneSchema = z.object({
   dryRun: z.boolean().default(false),
 });
 
-export function apiRouter(client: AllegroClient): Router {
+declare module 'express-serve-static-core' {
+  interface Request {
+    /** Target/publish account (writes go here). */
+    allegro?: AllegroClient;
+    accountId?: string;
+    /** Source/browse account (the active account in UI — owns the offers being read). */
+    sourceAllegro?: AllegroClient;
+    sourceAccountId?: string;
+  }
+}
+
+export function apiRouter(registry: AccountRegistry): Router {
   const r = Router();
 
-  r.get('/me', async (_req, res, next) => {
+  const pickAccount: RequestHandler = (req, _res, next) => {
+    // Source (browse) = X-Account-Id header > ?account= > default.
+    // Target (publish) = body.accountId > source. Body override only used by
+    // POSTs that actually publish (clone, propose product).
+    const fromBody =
+      req.body && typeof req.body === 'object' && 'accountId' in req.body
+        ? String((req.body as { accountId?: unknown }).accountId ?? '')
+        : '';
+    const headerVal = req.header('x-account-id');
+    const queryVal = typeof req.query.account === 'string' ? req.query.account : '';
+    const sourceWanted = headerVal || queryVal || undefined;
+    const targetWanted = fromBody || sourceWanted;
+
+    const source = registry.resolveOrDefault(sourceWanted);
+    const target = registry.resolveOrDefault(targetWanted);
+    req.sourceAllegro = source.allegro;
+    req.sourceAccountId = source.config.accountId;
+    req.allegro = target.allegro;
+    req.accountId = target.config.accountId;
+    next();
+  };
+
+  // Apply to JSON routes after express.json() has parsed the body.
+  r.use(pickAccount);
+
+  r.get('/me', async (req, res, next) => {
     try {
-      res.json(await client.me());
+      res.json(await req.allegro!.me());
     } catch (e) {
       next(e);
     }
@@ -61,7 +98,7 @@ export function apiRouter(client: AllegroClient): Router {
 
   r.get('/offers/:id', async (req, res, next) => {
     try {
-      const offer = await client.getOffer(req.params.id);
+      const offer = await req.allegro!.getOffer(req.params.id);
       res.json(offer);
     } catch (e) {
       next(e);
@@ -70,6 +107,7 @@ export function apiRouter(client: AllegroClient): Router {
 
   r.get('/offers/:id/preview', async (req, res, next) => {
     try {
+      const client = req.allegro!;
       const offer = await client.getOffer(req.params.id);
       const sourceProductId = offer.productSet?.[0]?.product?.id;
       const product = sourceProductId ? await client.getProduct(sourceProductId) : null;
@@ -100,7 +138,7 @@ export function apiRouter(client: AllegroClient): Router {
       return res.status(400).json({ error: 'VALIDATION', details: parsed.error.format() });
     }
     try {
-      const result = await cloneOffer(client, parsed.data);
+      const result = await cloneOffer(req.allegro!, parsed.data, req.sourceAllegro!);
       res.json(result);
     } catch (e) {
       next(e);
@@ -113,9 +151,11 @@ export function apiRouter(client: AllegroClient): Router {
       return res.status(400).json({ error: 'VALIDATION', details: parsed.error.format() });
     }
     try {
-      const offer = await client.getOffer(parsed.data.sourceOfferId);
+      const source = req.sourceAllegro!;
+      const target = req.allegro!;
+      const offer = await source.getOffer(parsed.data.sourceOfferId);
       const steps: Parameters<typeof buildCloneBody>[3] = [];
-      const { body, matchedProduct } = await buildCloneBody(client, offer, parsed.data, steps);
+      const { body, matchedProduct } = await buildCloneBody(target, offer, parsed.data, steps, source);
       res.json({ steps, body, matchedProduct });
     } catch (e) {
       next(e);
@@ -124,31 +164,31 @@ export function apiRouter(client: AllegroClient): Router {
 
   r.get('/commands/:id', async (req, res, next) => {
     try {
-      res.json(await client.getCommandStatus(req.params.id));
+      res.json(await req.allegro!.getCommandStatus(req.params.id));
     } catch (e) {
       next(e);
     }
   });
 
-  r.get('/helpers/shipping-rates', async (_req, res, next) => {
+  r.get('/helpers/shipping-rates', async (req, res, next) => {
     try {
-      res.json(await client.listShippingRates());
+      res.json(await req.allegro!.listShippingRates());
     } catch (e) {
       next(e);
     }
   });
 
-  r.get('/helpers/return-policies', async (_req, res, next) => {
+  r.get('/helpers/return-policies', async (req, res, next) => {
     try {
-      res.json(await client.listReturnPolicies());
+      res.json(await req.allegro!.listReturnPolicies());
     } catch (e) {
       next(e);
     }
   });
 
-  r.get('/helpers/implied-warranties', async (_req, res, next) => {
+  r.get('/helpers/implied-warranties', async (req, res, next) => {
     try {
-      res.json(await client.listImpliedWarranties());
+      res.json(await req.allegro!.listImpliedWarranties());
     } catch (e) {
       next(e);
     }
@@ -162,7 +202,7 @@ export function apiRouter(client: AllegroClient): Router {
       return res.status(400).json({ error: 'VALIDATION', message: 'name is required' });
     }
     try {
-      res.json({ matchingCategories: await client.matchCategories(phrase) });
+      res.json({ matchingCategories: await req.allegro!.matchCategories(phrase) });
     } catch (e) {
       next(e);
     }
@@ -170,7 +210,7 @@ export function apiRouter(client: AllegroClient): Router {
 
   r.get('/categories/:id/parameters', async (req, res, next) => {
     try {
-      res.json(await client.getCategoryParameters(req.params.id));
+      res.json(await req.allegro!.getCategoryParameters(req.params.id));
     } catch (e) {
       next(e);
     }
@@ -190,7 +230,7 @@ export function apiRouter(client: AllegroClient): Router {
       : undefined;
     const pageId = req.query.pageId ? String(req.query.pageId) : undefined;
     try {
-      const result = await client.searchProducts({ phrase, categoryId, pageId });
+      const result = await req.allegro!.searchProducts({ phrase, categoryId, pageId });
       res.json(result);
     } catch (e) {
       next(e);
@@ -199,7 +239,7 @@ export function apiRouter(client: AllegroClient): Router {
 
   r.get('/products/:id', async (req, res, next) => {
     try {
-      res.json(await client.getProduct(req.params.id));
+      res.json(await req.allegro!.getProduct(req.params.id));
     } catch (e) {
       next(e);
     }
@@ -215,7 +255,7 @@ export function apiRouter(client: AllegroClient): Router {
     const { images, ...rest } = parsed.data;
     const body = { ...rest, images: images.map((url) => ({ url })) };
     try {
-      const result = await client.proposeProduct(body);
+      const result = await req.allegro!.proposeProduct(body);
       if (result.status === 409) {
         return res.status(409).json({
           error: 'PRODUCT_EXISTS',
@@ -246,7 +286,7 @@ export function apiRouter(client: AllegroClient): Router {
       return res.status(400).json({ error: 'VALIDATION', message: 'valid url required' });
     }
     try {
-      res.json(await client.uploadImageByUrl(url.data));
+      res.json(await req.allegro!.uploadImageByUrl(url.data));
     } catch (e) {
       next(e);
     }
@@ -255,6 +295,9 @@ export function apiRouter(client: AllegroClient): Router {
   const allowedImageMime = new Set(['image/jpeg', 'image/png', 'image/webp']);
   const rawImage = express.raw({ type: () => true, limit: '12mb' });
 
+  // The binary-upload route needs the account picker AFTER the raw parser
+  // (so the JSON-body pickAccount middleware above doesn't apply here — the
+  // raw parser leaves req.body as a Buffer, no 'accountId' field is read).
   r.post('/images/upload', rawImage, async (req: Request, res, next) => {
     const ct = String(req.headers['content-type'] ?? '').toLowerCase();
     if (!allowedImageMime.has(ct)) {
@@ -268,7 +311,7 @@ export function apiRouter(client: AllegroClient): Router {
     }
     try {
       res.json(
-        await client.uploadImageBinary(
+        await req.allegro!.uploadImageBinary(
           req.body,
           ct as 'image/jpeg' | 'image/png' | 'image/webp',
         ),
