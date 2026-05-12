@@ -167,7 +167,7 @@ describe('buildCloneBody', () => {
           parameters: baseOffer.productSet![0].product.parameters,
         };
       },
-      searchProducts: async () => opts.searchHits ?? [],
+      searchProducts: async () => ({ products: opts.searchHits ?? [] }),
     } as unknown as AllegroClient;
   }
 
@@ -329,7 +329,7 @@ describe('cloneOffer dry run', () => {
         category: { id: '491' },
         parameters: [{ id: 'X', name: 'Pojemność dysku SSD', values: ['256 GB'] }],
       }),
-      searchProducts: async () => [],
+      searchProducts: async () => ({ products: [] }),
       createOffer: async () => {
         throw new Error('createOffer should not be called in dry run');
       },

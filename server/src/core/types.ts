@@ -77,7 +77,9 @@ export interface ProductSearchHit {
 
 export interface ProductSearchResponse {
   products: ProductSearchHit[];
-  nextPage?: { iterator?: string };
+  // Allegro returns the next-page cursor under `nextPage.id` for `/sale/products`.
+  // (Spec: developer.allegro.pl/documentation/#operation/getSaleProducts)
+  nextPage?: { id?: string };
 }
 
 export interface CategoryParameter {

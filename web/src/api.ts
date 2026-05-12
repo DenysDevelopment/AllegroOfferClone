@@ -191,12 +191,14 @@ export const api = {
   proposeProductPreview: (payload: ProposeProductPayload) =>
     http<{ body: unknown }>('/api/products/preview', { json: payload }),
 
-  searchProducts: (opts: { phrase: string; categoryId?: string; limit?: number }) => {
+  searchProducts: (opts: { phrase: string; categoryId?: string; pageId?: string }) => {
     const qs = new URLSearchParams();
     qs.set('phrase', opts.phrase);
     if (opts.categoryId) qs.set('categoryId', opts.categoryId);
-    if (opts.limit) qs.set('limit', String(opts.limit));
-    return http<{ products: ProductSearchHit[] }>(`/api/products/search?${qs.toString()}`);
+    if (opts.pageId) qs.set('pageId', opts.pageId);
+    return http<{ products: ProductSearchHit[]; nextPageId?: string }>(
+      `/api/products/search?${qs.toString()}`,
+    );
   },
   getProduct: (id: string) =>
     http<ProductSearchHit & { description?: DescriptionSections }>(

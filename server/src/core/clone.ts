@@ -189,10 +189,9 @@ export async function buildCloneBody(
 		try {
 			const phrase = buildSearchPhrase(productName, oldValues);
 			steps.push({ level: 'info', message: `Ищу в каталоге: «${phrase}»` });
-			const hits = await client.searchProducts({
+			const { products: hits } = await client.searchProducts({
 				phrase,
 				categoryId,
-				limit: 20,
 			});
 			matchedProduct = pickBestMatch(hits, desiredParams);
 			if (matchedProduct) {

@@ -4,12 +4,18 @@ import {
 	type CategoryParameter,
 	type DescriptionSections,
 	type MatchingCategory,
+	type OfferParameter,
 	type ProductParameterValue,
+	type ProductSearchHit,
 	type ProposedProduct,
 } from '../api';
 import { Combobox } from './Combobox';
 import { DescriptionEditor } from './DescriptionEditor';
 import { ImagesEditor } from './ImagesEditor';
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+type CatalogProduct = ProductSearchHit & { description?: DescriptionSections };
 
 const DEFAULT_CATEGORY_ID = '491'; // Laptopy → Komputery → Elektronika
 
@@ -142,6 +148,11 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 
 	const [state, setState] = useState<CreateState>({ kind: 'idle' });
 
+	// Catalog prefill: when operator picks an existing product, we stash it here
+	// and apply parameter values once the category's parameters finish loading
+	// (params re-fetch is triggered by setCategoryId). Cleared after applying.
+	const [pendingPrefill, setPendingPrefill] = useState<CatalogProduct | null>(null);
+
 	// --- categories search (debounced) ---
 	const searchSeqRef = useRef(0);
 	useEffect(() => {
@@ -194,6 +205,65 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 				if (paramsSeqRef.current === seq) setParamsLoading(false);
 			});
 	}, [categoryId]);
+
+	// Apply stashed catalog product's parameters to the form once the category's
+	// parameter list has loaded. Match by paramId; pick valuesIds[0] for dictionary
+	// params, otherwise the first text value. Clears the stash after applying.
+	useEffect(() => {
+		if (!pendingPrefill) return;
+		if (paramsLoading) return;
+		if (params.length === 0) return;
+		if (pendingPrefill.category?.id && pendingPrefill.category.id !== categoryId)
+			return;
+		const next: Record<string, ProductParameterValue> = {};
+		const paramById = new Map(params.map(p => [p.id, p]));
+		for (const src of pendingPrefill.parameters ?? []) {
+			const meta = paramById.get(src.id);
+			if (!meta) continue;
+			const isDict =
+				meta.type === 'dictionary' && (meta.dictionary?.length ?? 0) > 0;
+			if (isDict && src.valuesIds && src.valuesIds[0]) {
+				next[meta.id] = { id: meta.id, valuesIds: [src.valuesIds[0]] };
+				continue;
+			}
+			const text =
+				src.values?.[0] ?? src.valuesLabels?.[0] ?? undefined;
+			if (text && text.trim()) {
+				if (isDict) {
+					const hit = meta.dictionary?.find(
+						d => d.value.toLowerCase() === text.toLowerCase(),
+					);
+					if (hit?.id) {
+						next[meta.id] = { id: meta.id, valuesIds: [hit.id] };
+						continue;
+					}
+				}
+				next[meta.id] = { id: meta.id, values: [text] };
+			}
+		}
+		setValues(next);
+		setPendingPrefill(null);
+	}, [pendingPrefill, params, paramsLoading, categoryId]);
+
+	const pickFromCatalog = async (hit: ProductSearchHit) => {
+		// Fetch the full card to get description + complete parameter list.
+		let full: CatalogProduct;
+		try {
+			full = await api.getProduct(hit.id);
+		} catch {
+			full = hit;
+		}
+		const imgs = (full.images ?? []).map(it =>
+			typeof it === 'string' ? it : it.url,
+		);
+		setName(full.name ?? '');
+		setImages(imgs);
+		setDescription(full.description ?? { sections: [] });
+		if (full.category?.id) {
+			setCategoryId(full.category.id);
+		}
+		setPendingPrefill(full);
+	};
 
 	const required = useMemo(() => params.filter(p => p.required), [params]);
 	const optional = useMemo(() => params.filter(p => !p.required), [params]);
@@ -312,6 +382,12 @@ export function NewProductPanel({ env }: { env: 'sandbox' | 'production' }) {
 
 	return (
 		<div className='space-y-4'>
+			<CatalogPrefillPanel
+				categoryIdHint={categoryId}
+				onPick={pickFromCatalog}
+				busy={!!pendingPrefill}
+			/>
+
 			<section className='panel'>
 				<header className='px-4 h-11 flex items-center justify-between border-b border-border'>
 					<span className='label'>01 · Категория</span>
@@ -609,6 +685,140 @@ function CreatedResult({ product }: { product: ProposedProduct }) {
 						Мой ассортимент →
 					</a>
 				</div>
+			</div>
+		</section>
+	);
+}
+
+function CatalogPrefillPanel({
+	categoryIdHint,
+	onPick,
+	busy,
+}: {
+	categoryIdHint: string;
+	onPick: (hit: ProductSearchHit) => void | Promise<void>;
+	busy: boolean;
+}) {
+	const [query, setQuery] = useState('');
+	const [results, setResults] = useState<ProductSearchHit[]>([]);
+	const [loading, setLoading] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const seqRef = useRef(0);
+
+	useEffect(() => {
+		const q = query.trim();
+		if (q.length < 2) {
+			setResults([]);
+			setError(null);
+			return;
+		}
+		const seq = ++seqRef.current;
+		setLoading(true);
+		setError(null);
+
+		const t = setTimeout(async () => {
+			try {
+				if (UUID_RE.test(q)) {
+					const product = await api.getProduct(q);
+					if (seqRef.current === seq) setResults([product]);
+				} else {
+					const r = await api.searchProducts({
+						phrase: q,
+						categoryId: categoryIdHint.trim() || undefined,
+					});
+					if (seqRef.current === seq) setResults(r.products ?? []);
+				}
+			} catch (e) {
+				if (seqRef.current === seq) {
+					setResults([]);
+					setError((e as Error).message);
+				}
+			} finally {
+				if (seqRef.current === seq) setLoading(false);
+			}
+		}, 300);
+		return () => clearTimeout(t);
+	}, [query, categoryIdHint]);
+
+	const handlePick = async (hit: ProductSearchHit) => {
+		await onPick(hit);
+		setQuery('');
+		setResults([]);
+	};
+
+	return (
+		<section className='panel'>
+			<header className='px-4 h-11 flex items-center justify-between border-b border-border'>
+				<span className='label'>00 · Подтянуть из каталога</span>
+				{loading && <span className='text-[11px] text-ink-faint'>· · ·</span>}
+			</header>
+			<div className='p-4 space-y-3'>
+				<input
+					className='input'
+					value={query}
+					onChange={e => setQuery(e.target.value)}
+					placeholder='название или productId'
+					disabled={busy}
+				/>
+				{error && (
+					<div className='text-[13px] text-bad border border-bad/30 bg-badTint rounded-md px-3 py-2'>
+						{error}
+					</div>
+				)}
+				{results.length > 0 && (
+					<div className='border border-border-muted rounded-md max-h-72 overflow-y-auto divide-y divide-border-muted'>
+						{results.map(p => {
+							const imgs = p.images ?? [];
+							const first = imgs[0];
+							const imgUrl = first
+								? typeof first === 'string'
+									? first
+									: first.url
+								: null;
+							return (
+								<button
+									key={p.id}
+									type='button'
+									onClick={() => handlePick(p)}
+									disabled={busy}
+									className='w-full text-left p-2.5 flex items-start gap-3 hover:bg-soft transition disabled:opacity-50'>
+									<div className='aspect-square w-12 h-12 border border-border rounded-md overflow-hidden bg-soft flex items-center justify-center shrink-0'>
+										{imgUrl ? (
+											<img
+												src={imgUrl}
+												alt=''
+												loading='lazy'
+												className='w-full h-full object-contain'
+												onError={e => {
+													(e.target as HTMLImageElement).style.opacity = '0.2';
+												}}
+											/>
+										) : (
+											<span className='text-ink-faint text-[10px]'>—</span>
+										)}
+									</div>
+									<div className='min-w-0 flex-1'>
+										<div className='text-ink text-[13px] truncate'>{p.name}</div>
+										<div className='text-ink-faint font-mono text-[11px] truncate'>
+											{p.id}
+										</div>
+										{p.parameters && p.parameters.length > 0 && (
+											<div className='text-ink-muted text-[11px] mt-0.5 truncate'>
+												{p.parameters
+													.slice(0, 4)
+													.map(
+														(par: OfferParameter) =>
+															`${par.name}: ${par.valuesLabels?.[0] ?? par.values?.[0] ?? '—'}`,
+													)
+													.join(' · ')}
+											</div>
+										)}
+									</div>
+								</button>
+							);
+						})}
+					</div>
+				)}
 			</div>
 		</section>
 	);

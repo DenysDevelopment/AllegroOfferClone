@@ -146,18 +146,24 @@ export class AllegroClient {
   async searchProducts(opts: {
     phrase: string;
     categoryId?: string;
-    limit?: number;
-  }): Promise<ProductSearchHit[]> {
+    pageId?: string;
+  }): Promise<{ products: ProductSearchHit[]; nextPageId?: string }> {
+    // Allegro's /sale/products has no `limit`/`offset` — page size is server-fixed
+    // and pagination is cursor-only via the `page.id` query param. Pass back the
+    // value from the previous response's `nextPage.id` to fetch the next page.
     const params: Record<string, string> = { phrase: opts.phrase };
     if (opts.categoryId) params['category.id'] = opts.categoryId;
-    if (opts.limit) params['limit'] = String(opts.limit);
+    if (opts.pageId) params['page.id'] = opts.pageId;
 
     const res = await this.withRetry<ProductSearchResponse>({
       method: 'GET',
       url: '/sale/products',
       params,
     });
-    return res.data.products ?? [];
+    return {
+      products: res.data.products ?? [],
+      nextPageId: res.data.nextPage?.id,
+    };
   }
 
   async getCategoryParameters(categoryId: string): Promise<CategoryParametersResponse> {

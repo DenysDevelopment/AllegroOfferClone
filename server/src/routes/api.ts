@@ -188,12 +188,10 @@ export function apiRouter(client: AllegroClient): Router {
     const categoryId = req.query.categoryId
       ? String(req.query.categoryId)
       : undefined;
-    const limit = req.query.limit
-      ? Math.min(50, Math.max(1, Number(req.query.limit)))
-      : 20;
+    const pageId = req.query.pageId ? String(req.query.pageId) : undefined;
     try {
-      const products = await client.searchProducts({ phrase, categoryId, limit });
-      res.json({ products });
+      const result = await client.searchProducts({ phrase, categoryId, pageId });
+      res.json(result);
     } catch (e) {
       next(e);
     }
