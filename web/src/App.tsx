@@ -16,8 +16,8 @@ import {
 	FindProductPanel,
 	type SelectedTargetProduct,
 } from './components/FindProductPanel';
-import { ImagesEditor } from './components/ImagesEditor';
 import { GpsrPanel } from './components/GpsrPanel';
+import { ImagesEditor } from './components/ImagesEditor';
 import { NewProductPanel } from './components/NewProductPanel';
 import { OfferRefsPanel } from './components/OfferRefsPanel';
 import {
