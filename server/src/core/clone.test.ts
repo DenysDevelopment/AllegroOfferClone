@@ -673,7 +673,9 @@ describe('buildCloneBody — offer refs', () => {
     expect(b.afterSalesServices.impliedWarranty).toBeUndefined();
     expect(b.afterSalesServices.warranty).toBeUndefined();
     expect(b.discounts.wholesalePriceList).toBeUndefined();
-    expect(steps.filter(s => s.level === 'warn').length).toBeGreaterThanOrEqual(2);
+    // 5 account-scoped refs dropped → one warn each (shippingRates,
+    // returnPolicy, impliedWarranty, warranty, wholesalePriceList).
+    expect(steps.filter(s => s.level === 'warn').length).toBeGreaterThanOrEqual(5);
   });
 
   it('applies options.offerRefs over the source', async () => {
@@ -704,5 +706,23 @@ describe('buildCloneBody — offer refs', () => {
     expect(b.delivery.shippingRates).toEqual({ id: 'SR-TGT' });
     expect(b.afterSalesServices.returnPolicy).toEqual({ name: 'Zwroty 14 dni' });
     expect(b.afterSalesServices.impliedWarranty).toBeUndefined();
+  });
+
+  it('adds delivery.shippingRates from options when the source has no delivery', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const offerNoDelivery = { ...refsOffer, delivery: undefined } as AllegroOffer;
+    const { body } = await buildCloneBody(
+      refsClient(),
+      offerNoDelivery,
+      {
+        sourceOfferId: 'src-1',
+        paramOverrides: {},
+        offerRefs: { shippingRates: { id: 'SR-TGT' } },
+      },
+      steps,
+      refsClient(),
+    );
+    const b = body as { delivery?: { shippingRates?: { id: string } } };
+    expect(b.delivery?.shippingRates).toEqual({ id: 'SR-TGT' });
   });
 });

@@ -533,7 +533,13 @@ function resolveOfferRefs(
 	): { id: string } | { name: string } | undefined => {
 		if (override !== undefined) return override === null ? undefined : override;
 		if (!sourceRef) return undefined;
-		if (!crossAccount) return sourceRef.id ? { id: sourceRef.id } : undefined;
+		if (!crossAccount) {
+			// Same account — carry the source ref. Prefer id; fall back to a
+			// name-only ref (Allegro allows { name } dictionary lookups too).
+			if (sourceRef.id) return { id: sourceRef.id };
+			if (sourceRef.name) return { name: sourceRef.name };
+			return undefined;
+		}
 		steps.push({
 			level: 'warn',
 			message: `${label} источника не перенесён (id чужого аккаунта) — укажи в панели «Справочники оферты»`,
@@ -556,7 +562,11 @@ function resolveOfferRefs(
 
 	// afterSalesServices — replace the three account-scoped refs.
 	const srcAss = source.afterSalesServices;
-	if (srcAss || options.offerRefs) {
+	const hasAssOverride =
+		options.offerRefs?.returnPolicy !== undefined ||
+		options.offerRefs?.impliedWarranty !== undefined ||
+		options.offerRefs?.warranty !== undefined;
+	if (srcAss || hasAssOverride) {
 		const ass: Record<string, unknown> = { ...(srcAss ?? {}) };
 		const rp = resolveRef('Warunki zwrotów', srcAss?.returnPolicy ?? undefined, options.offerRefs?.returnPolicy);
 		const iw = resolveRef('Reklamacje', srcAss?.impliedWarranty ?? undefined, options.offerRefs?.impliedWarranty);
