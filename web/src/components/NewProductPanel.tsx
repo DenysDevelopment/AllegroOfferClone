@@ -524,7 +524,7 @@ export function NewProductPanel({
 					{optional.length > 0 && (
 						<details className='border-t border-border-muted pt-3'>
 							<summary className='text-[12px] text-ink-muted cursor-pointer hover:text-ink'>
-								Необязательные ({optional.length})
+								Прочие необязательные ({optional.length})
 							</summary>
 							<div className='space-y-2 pt-2'>
 								{optional.map(p => (
