@@ -215,6 +215,8 @@ export class AllegroClient {
   // ---- GPSR: responsible persons & producers ----
 
   async listResponsiblePersons(): Promise<ResponsiblePerson[]> {
+    // limit=1000 is Allegro's documented max for this endpoint — a seller's
+    // GPSR dictionary is small, so a single page covers it (no pagination).
     const res = await this.withRetry<{ responsiblePersons?: ResponsiblePerson[] }>({
       method: 'GET',
       url: '/sale/responsible-persons',
@@ -241,6 +243,8 @@ export class AllegroClient {
   }
 
   async listResponsibleProducers(): Promise<ResponsibleProducer[]> {
+    // limit=1000 is Allegro's documented max for this endpoint — a seller's
+    // GPSR dictionary is small, so a single page covers it (no pagination).
     const res = await this.withRetry<{ responsibleProducers?: ResponsibleProducer[] }>({
       method: 'GET',
       url: '/sale/responsible-producers',
