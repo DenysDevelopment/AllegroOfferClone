@@ -13,6 +13,8 @@ import type {
   ProductSearchHit,
   ProductSearchResponse,
   PublicationCommandStatus,
+  ResponsiblePerson,
+  ResponsibleProducer,
 } from './types.js';
 
 const ACCEPT = 'application/vnd.allegro.public.v1+json';
@@ -206,6 +208,60 @@ export class AllegroClient {
     const res = await this.withRetry<PublicationCommandStatus>({
       method: 'GET',
       url: `/sale/offer-publication-commands/${encodeURIComponent(commandId)}`,
+    });
+    return res.data;
+  }
+
+  // ---- GPSR: responsible persons & producers ----
+
+  async listResponsiblePersons(): Promise<ResponsiblePerson[]> {
+    const res = await this.withRetry<{ responsiblePersons?: ResponsiblePerson[] }>({
+      method: 'GET',
+      url: '/sale/responsible-persons',
+      params: { limit: 1000 },
+    });
+    return res.data.responsiblePersons ?? [];
+  }
+
+  async getResponsiblePerson(id: string): Promise<ResponsiblePerson> {
+    const res = await this.withRetry<ResponsiblePerson>({
+      method: 'GET',
+      url: `/sale/responsible-persons/${encodeURIComponent(id)}`,
+    });
+    return res.data;
+  }
+
+  async createResponsiblePerson(body: unknown): Promise<ResponsiblePerson> {
+    const res = await this.withRetry<ResponsiblePerson>({
+      method: 'POST',
+      url: '/sale/responsible-persons',
+      data: body,
+    });
+    return res.data;
+  }
+
+  async listResponsibleProducers(): Promise<ResponsibleProducer[]> {
+    const res = await this.withRetry<{ responsibleProducers?: ResponsibleProducer[] }>({
+      method: 'GET',
+      url: '/sale/responsible-producers',
+      params: { limit: 1000 },
+    });
+    return res.data.responsibleProducers ?? [];
+  }
+
+  async getResponsibleProducer(id: string): Promise<ResponsibleProducer> {
+    const res = await this.withRetry<ResponsibleProducer>({
+      method: 'GET',
+      url: `/sale/responsible-producers/${encodeURIComponent(id)}`,
+    });
+    return res.data;
+  }
+
+  async createResponsibleProducer(body: unknown): Promise<ResponsibleProducer> {
+    const res = await this.withRetry<ResponsibleProducer>({
+      method: 'POST',
+      url: '/sale/responsible-producers',
+      data: body,
     });
     return res.data;
   }
