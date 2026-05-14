@@ -44,6 +44,76 @@ export interface DescriptionSections {
   sections: Array<{ items: DescriptionItem[] }>;
 }
 
+export interface GpsrAddress {
+  countryCode: string;
+  street: string;
+  postalCode: string;
+  city: string;
+}
+
+export interface GpsrContact {
+  email?: string;
+  phoneNumber?: string;
+  formUrl?: string;
+}
+
+export interface ResponsiblePerson {
+  id: string;
+  name: string;
+  personalData: { name: string; address: GpsrAddress; contact: GpsrContact };
+}
+
+export interface ResponsibleProducer {
+  id: string;
+  name: string;
+  producerData: { tradeName: string; address: GpsrAddress; contact: GpsrContact };
+}
+
+export type ResponsibleProducerRef =
+  | { type: 'ID'; id: string }
+  | { type: 'NAME'; name: string };
+
+export type ResponsiblePersonRef = { id: string } | { name: string };
+
+export interface SafetyInformationText {
+  type: 'TEXT';
+  description: string;
+}
+
+/** GPSR data read off the source offer's productSet[0] (preview). */
+export interface OfferGpsr {
+  responsibleProducer?: ResponsibleProducer | { type: 'NAME'; name: string };
+  responsiblePerson?: ResponsiblePerson | { name: string };
+  safetyInformation?: SafetyInformationText;
+  marketedBeforeGPSRObligation?: boolean | null;
+}
+
+/** Account-scoped offer dictionary reference (shipping rate, return policy, …). */
+export interface NamedRef {
+  id: string;
+  name?: string;
+}
+
+/** Account-scoped offer refs read off the source offer (preview). */
+export interface OfferRefs {
+  shippingRates?: NamedRef;
+  returnPolicy?: NamedRef;
+  impliedWarranty?: NamedRef;
+  warranty?: NamedRef;
+}
+
+export interface CreateResponsiblePersonPayload {
+  name: string;
+  personalData: { name: string; address: GpsrAddress; contact: GpsrContact };
+  accountId?: string;
+}
+
+export interface CreateResponsibleProducerPayload {
+  name: string;
+  producerData: { tradeName: string; address: GpsrAddress; contact: GpsrContact };
+  accountId?: string;
+}
+
 export interface ClonePayload {
   sourceOfferId: string;
   paramOverrides: Record<string, string>;
@@ -54,6 +124,19 @@ export interface ClonePayload {
   descriptionOverride?: DescriptionSections;
   imagesOverride?: string[];
   targetProductId?: string;
+  /** GPSR data confirmed by the operator in GpsrPanel. */
+  gpsr?: {
+    responsibleProducer?: ResponsibleProducerRef | null;
+    responsiblePerson?: ResponsiblePersonRef | null;
+    safetyInformation?: SafetyInformationText | null;
+  };
+  /** Account-scoped offer refs confirmed by the operator in OfferRefsPanel. */
+  offerRefs?: {
+    shippingRates?: { id: string } | { name: string } | null;
+    returnPolicy?: { id: string } | { name: string } | null;
+    impliedWarranty?: { id: string } | { name: string } | null;
+    warranty?: { id: string } | { name: string } | null;
+  };
   dryRun?: boolean;
   /** Optional per-request override of the publishing (target) account. */
   accountId?: string;
@@ -93,6 +176,8 @@ export interface OfferPreview {
   }>;
   description: DescriptionSections | null;
   images: Array<{ url: string } | string>;
+  gpsr?: OfferGpsr | null;
+  offerRefs?: OfferRefs | null;
 }
 
 // --- Active-account context ---
@@ -256,6 +341,40 @@ export const api = {
     http<ProductSearchHit & { description?: DescriptionSections }>(
       `/api/products/${encodeURIComponent(id)}`,
     ),
+
+  gpsr: {
+    listPersons: (accountId?: string) =>
+      http<{ responsiblePersons: ResponsiblePerson[] }>(
+        '/api/gpsr/responsible-persons',
+        { accountId },
+      ),
+    listProducers: (accountId?: string) =>
+      http<{ responsibleProducers: ResponsibleProducer[] }>(
+        '/api/gpsr/responsible-producers',
+        { accountId },
+      ),
+    createPerson: (payload: CreateResponsiblePersonPayload) =>
+      http<ResponsiblePerson>('/api/gpsr/responsible-persons', {
+        json: payload,
+        accountId: payload.accountId,
+      }),
+    createProducer: (payload: CreateResponsibleProducerPayload) =>
+      http<ResponsibleProducer>('/api/gpsr/responsible-producers', {
+        json: payload,
+        accountId: payload.accountId,
+      }),
+  },
+
+  helpers: {
+    shippingRates: (accountId?: string) =>
+      http<Array<{ id: string; name: string }>>('/api/helpers/shipping-rates', { accountId }),
+    returnPolicies: (accountId?: string) =>
+      http<Array<{ id: string; name: string }>>('/api/helpers/return-policies', { accountId }),
+    impliedWarranties: (accountId?: string) =>
+      http<Array<{ id: string; name: string }>>('/api/helpers/implied-warranties', { accountId }),
+    warranties: (accountId?: string) =>
+      http<Array<{ id: string; name: string }>>('/api/helpers/warranties', { accountId }),
+  },
 
   uploadImageByUrl: (url: string) =>
     http<ImageUploadResponse>('/api/images/upload-url', { json: { url } }),
