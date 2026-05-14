@@ -55,6 +55,17 @@ export interface CloneOptions {
 		responsiblePerson?: ResponsiblePersonRef | null;
 		safetyInformation?: SafetyInformationText | null;
 	};
+	/**
+	 * Account-scoped offer dictionary references confirmed by the operator in
+	 * the UI (OfferRefsPanel). Each value: `{ id }` or `{ name }` to set,
+	 * `null` to clear, `undefined` to fall back to source carry-over.
+	 */
+	offerRefs?: {
+		shippingRates?: { id: string } | { name: string } | null;
+		returnPolicy?: { id: string } | { name: string } | null;
+		impliedWarranty?: { id: string } | { name: string } | null;
+		warranty?: { id: string } | { name: string } | null;
+	};
 	/** Dry run: build the body but don't POST. */
 	dryRun?: boolean;
 }
@@ -411,7 +422,11 @@ export async function buildCloneBody(
 			...(source.publication ?? {}),
 			status: options.publicationStatus ?? 'INACTIVE',
 		},
-	});
+		// delivery / afterSalesServices / discounts: resolve account-scoped refs
+		// (shipping rates, return policy, warranties, wholesale price list) —
+		// must come after ...baseOffer so it overrides the source's copies.
+		...(resolveOfferRefs(source, options, crossAccount, steps) as Partial<AllegroOffer>),
+	} as AllegroOffer);
 
 	if (isTargetBind) {
 		steps.push({
@@ -484,6 +499,89 @@ function resolveGpsr(
 			if (sourceItem.responsiblePerson)
 				out.responsiblePerson = sourceItem.responsiblePerson;
 		}
+	}
+
+	return out;
+}
+
+/**
+ * Resolve account-scoped offer references for the clone:
+ *  - options.offerRefs.X set → apply (`{id}`/`{name}`, `null` clears).
+ *  - same account, no override → carry the source's ref as-is.
+ *  - cross account, no override → the id belongs to the source account's
+ *    dictionary and is invalid in the target — drop it and warn.
+ * Non-ref fields of delivery/afterSalesServices/discounts always carry.
+ * wholesalePriceList has no UI override: same-account carries, cross-account
+ * drops it.
+ */
+function resolveOfferRefs(
+	source: AllegroOffer,
+	options: CloneOptions,
+	crossAccount: boolean,
+	steps: CloneStep[],
+): { delivery?: unknown; afterSalesServices?: unknown; discounts?: unknown } {
+	const out: {
+		delivery?: Record<string, unknown>;
+		afterSalesServices?: Record<string, unknown>;
+		discounts?: Record<string, unknown>;
+	} = {};
+
+	const resolveRef = (
+		label: string,
+		sourceRef: { id?: string; name?: string } | undefined,
+		override: { id: string } | { name: string } | null | undefined,
+	): { id: string } | { name: string } | undefined => {
+		if (override !== undefined) return override === null ? undefined : override;
+		if (!sourceRef) return undefined;
+		if (!crossAccount) return sourceRef.id ? { id: sourceRef.id } : undefined;
+		steps.push({
+			level: 'warn',
+			message: `${label} источника не перенесён (id чужого аккаунта) — укажи в панели «Справочники оферты»`,
+		});
+		return undefined;
+	};
+
+	// delivery — keep all source fields, replace only shippingRates.
+	if (source.delivery || options.offerRefs?.shippingRates !== undefined) {
+		const delivery: Record<string, unknown> = { ...(source.delivery ?? {}) };
+		const shippingRates = resolveRef(
+			'Cennik dostawy',
+			source.delivery?.shippingRates as { id?: string } | undefined,
+			options.offerRefs?.shippingRates,
+		);
+		if (shippingRates) delivery.shippingRates = shippingRates;
+		else delete delivery.shippingRates;
+		out.delivery = delivery;
+	}
+
+	// afterSalesServices — replace the three account-scoped refs.
+	const srcAss = source.afterSalesServices;
+	if (srcAss || options.offerRefs) {
+		const ass: Record<string, unknown> = { ...(srcAss ?? {}) };
+		const rp = resolveRef('Warunki zwrotów', srcAss?.returnPolicy ?? undefined, options.offerRefs?.returnPolicy);
+		const iw = resolveRef('Reklamacje', srcAss?.impliedWarranty ?? undefined, options.offerRefs?.impliedWarranty);
+		const wr = resolveRef('Gwarancja', srcAss?.warranty ?? undefined, options.offerRefs?.warranty);
+		if (rp) ass.returnPolicy = rp;
+		else delete ass.returnPolicy;
+		if (iw) ass.impliedWarranty = iw;
+		else delete ass.impliedWarranty;
+		if (wr) ass.warranty = wr;
+		else delete ass.warranty;
+		out.afterSalesServices = ass;
+	}
+
+	// discounts.wholesalePriceList — account-scoped promotion id, no UI override.
+	const srcDiscounts = source.discounts as Record<string, unknown> | undefined;
+	if (srcDiscounts) {
+		const discounts = { ...srcDiscounts };
+		if (crossAccount && 'wholesalePriceList' in discounts) {
+			delete discounts.wholesalePriceList;
+			steps.push({
+				level: 'warn',
+				message: 'Cennik hurtowy источника не перенесён (id чужого аккаунта)',
+			});
+		}
+		out.discounts = discounts;
 	}
 
 	return out;

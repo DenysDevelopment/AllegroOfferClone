@@ -590,3 +590,119 @@ describe('buildCloneBody — GPSR', () => {
     expect(item).not.toHaveProperty('marketplaces');
   });
 });
+
+describe('buildCloneBody — offer refs', () => {
+  const baseProduct = {
+    id: 'PROD-256',
+    name: 'Lenovo IdeaPad 5',
+    category: { id: '491' },
+    parameters: [{ id: 'P_RAM', name: 'Pamięć RAM', values: ['16 GB'] }],
+  };
+
+  const refsOffer: AllegroOffer = {
+    id: 'src-1',
+    name: 'Lenovo IdeaPad 5',
+    category: { id: '491' },
+    productSet: [{ product: baseProduct, quantity: { value: 1 } }],
+    sellingMode: { format: 'BUY_NOW', price: { amount: '1', currency: 'PLN' } },
+    stock: { available: 1, unit: 'UNIT' },
+    publication: { status: 'ACTIVE' as const },
+    delivery: { handlingTime: 'PT24H', shippingRates: { id: 'SR-SRC' } },
+    afterSalesServices: {
+      returnPolicy: { id: 'RP-SRC' },
+      impliedWarranty: { id: 'IW-SRC' },
+      warranty: { id: 'WR-SRC' },
+    },
+    discounts: { wholesalePriceList: { id: 'WPL-SRC' } },
+  } as AllegroOffer;
+
+  function refsClient(): AllegroClient {
+    return {
+      getProduct: async (id: string) => ({
+        id,
+        name: baseProduct.name,
+        category: baseProduct.category,
+        parameters: baseProduct.parameters,
+      }),
+      searchProducts: async () => ({ products: [] }),
+    } as unknown as AllegroClient;
+  }
+
+  it('same-account: carries delivery/afterSalesServices refs and wholesalePriceList', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const { body } = await buildCloneBody(
+      refsClient(),
+      refsOffer,
+      { sourceOfferId: 'src-1', paramOverrides: {} },
+      steps,
+    );
+    const b = body as {
+      delivery: { handlingTime?: string; shippingRates?: { id: string } };
+      afterSalesServices: {
+        returnPolicy?: { id: string };
+        impliedWarranty?: { id: string };
+        warranty?: { id: string };
+      };
+      discounts: { wholesalePriceList?: { id: string } };
+    };
+    expect(b.delivery.shippingRates).toEqual({ id: 'SR-SRC' });
+    expect(b.delivery.handlingTime).toBe('PT24H');
+    expect(b.afterSalesServices.returnPolicy).toEqual({ id: 'RP-SRC' });
+    expect(b.afterSalesServices.impliedWarranty).toEqual({ id: 'IW-SRC' });
+    expect(b.afterSalesServices.warranty).toEqual({ id: 'WR-SRC' });
+    expect(b.discounts.wholesalePriceList).toEqual({ id: 'WPL-SRC' });
+  });
+
+  it('cross-account: drops account-scoped ids + warns, keeps other delivery fields', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const { body } = await buildCloneBody(
+      refsClient(),
+      refsOffer,
+      { sourceOfferId: 'src-1', paramOverrides: {} },
+      steps,
+      refsClient(),
+    );
+    const b = body as {
+      delivery: { handlingTime?: string; shippingRates?: { id: string } };
+      afterSalesServices: { returnPolicy?: unknown; impliedWarranty?: unknown; warranty?: unknown };
+      discounts: { wholesalePriceList?: unknown };
+    };
+    expect(b.delivery.shippingRates).toBeUndefined();
+    expect(b.delivery.handlingTime).toBe('PT24H');
+    expect(b.afterSalesServices.returnPolicy).toBeUndefined();
+    expect(b.afterSalesServices.impliedWarranty).toBeUndefined();
+    expect(b.afterSalesServices.warranty).toBeUndefined();
+    expect(b.discounts.wholesalePriceList).toBeUndefined();
+    expect(steps.filter(s => s.level === 'warn').length).toBeGreaterThanOrEqual(2);
+  });
+
+  it('applies options.offerRefs over the source', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const { body } = await buildCloneBody(
+      refsClient(),
+      refsOffer,
+      {
+        sourceOfferId: 'src-1',
+        paramOverrides: {},
+        offerRefs: {
+          shippingRates: { id: 'SR-TGT' },
+          returnPolicy: { name: 'Zwroty 14 dni' },
+          impliedWarranty: null,
+        },
+      },
+      steps,
+      refsClient(),
+    );
+    const b = body as {
+      delivery: { shippingRates?: { id: string } };
+      afterSalesServices: {
+        returnPolicy?: { name: string };
+        impliedWarranty?: unknown;
+        warranty?: unknown;
+      };
+    };
+    expect(b.delivery.shippingRates).toEqual({ id: 'SR-TGT' });
+    expect(b.afterSalesServices.returnPolicy).toEqual({ name: 'Zwroty 14 dni' });
+    expect(b.afterSalesServices.impliedWarranty).toBeUndefined();
+  });
+});
