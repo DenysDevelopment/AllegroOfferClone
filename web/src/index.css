@@ -5,6 +5,76 @@
 @layer base {
   :root {
     color-scheme: light;
+
+    /* Surfaces — warm off-white CRM look */
+    --c-app: 247 245 240;
+    --c-card: 255 255 255;
+    --c-soft: 251 248 243;
+
+    --c-border: 236 231 223;
+    --c-border-muted: 243 239 233;
+    --c-border-strong: 216 210 199;
+
+    --c-ink: 31 31 35;
+    --c-ink-muted: 110 110 118;
+    --c-ink-faint: 168 168 176;
+    --c-ink-on: 255 255 255;
+
+    --c-flame: 255 107 53;
+    --c-flame-soft: 255 138 92;
+    --c-flame-tint: 255 241 232;
+    --c-flame-ring: 255 210 186;
+
+    --c-ok: 16 185 129;
+    --c-ok-tint: 232 248 241;
+    --c-warn: 245 158 11;
+    --c-warn-tint: 255 246 229;
+    --c-bad: 239 68 68;
+    --c-bad-tint: 253 236 236;
+
+    --scroll-track: transparent;
+    --scroll-thumb: 226 220 210;
+    --scroll-thumb-hover: 204 197 184;
+
+    --shadow-card: 0 1px 2px rgba(15, 15, 20, 0.04), 0 0 0 1px rgba(15, 15, 20, 0.04);
+    --shadow-pop:  0 4px 12px rgba(15, 15, 20, 0.06), 0 0 0 1px rgba(15, 15, 20, 0.05);
+  }
+
+  .dark {
+    color-scheme: dark;
+
+    /* Surfaces — deep neutral with a slight warm tilt */
+    --c-app: 15 17 21;
+    --c-card: 22 25 31;
+    --c-soft: 28 32 39;
+
+    --c-border: 41 46 55;
+    --c-border-muted: 32 36 43;
+    --c-border-strong: 64 71 84;
+
+    --c-ink: 229 231 235;
+    --c-ink-muted: 156 163 175;
+    --c-ink-faint: 107 114 128;
+    --c-ink-on: 255 255 255;
+
+    --c-flame: 255 122 75;
+    --c-flame-soft: 255 152 110;
+    --c-flame-tint: 58 36 24;
+    --c-flame-ring: 96 56 35;
+
+    --c-ok: 52 211 153;
+    --c-ok-tint: 16 42 35;
+    --c-warn: 251 191 36;
+    --c-warn-tint: 46 36 21;
+    --c-bad: 248 113 113;
+    --c-bad-tint: 46 26 26;
+
+    --scroll-track: transparent;
+    --scroll-thumb: 47 53 63;
+    --scroll-thumb-hover: 70 78 92;
+
+    --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.04);
+    --shadow-pop:  0 6px 18px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(255, 255, 255, 0.05);
   }
 
   html, body, #root {
@@ -12,14 +82,14 @@
   }
 
   body {
-    background: #F7F5F0;
-    color: #1F1F23;
+    background: rgb(var(--c-app));
+    color: rgb(var(--c-ink));
     font-feature-settings: 'cv11', 'tnum';
   }
 
   ::selection {
-    background: rgba(255, 107, 53, 0.25);
-    color: #1F1F23;
+    background: rgb(var(--c-flame) / 0.25);
+    color: rgb(var(--c-ink));
   }
 
   ::-webkit-scrollbar {
@@ -27,25 +97,25 @@
     height: 10px;
   }
   ::-webkit-scrollbar-track {
-    background: transparent;
+    background: var(--scroll-track);
   }
   ::-webkit-scrollbar-thumb {
-    background: #E2DCD2;
+    background: rgb(var(--scroll-thumb));
     border-radius: 6px;
-    border: 2px solid #F7F5F0;
+    border: 2px solid rgb(var(--c-app));
   }
   ::-webkit-scrollbar-thumb:hover {
-    background: #CCC5B8;
+    background: rgb(var(--scroll-thumb-hover));
   }
 
   :focus-visible {
     outline: none;
-    box-shadow: 0 0 0 3px rgba(255, 107, 53, 0.22);
+    box-shadow: 0 0 0 3px rgb(var(--c-flame) / 0.22);
     border-radius: 6px;
   }
 
   input, textarea {
-    caret-color: #FF6B35;
+    caret-color: rgb(var(--c-flame));
   }
 }
 
@@ -68,7 +138,7 @@
   }
 
   .btn-primary {
-    @apply border-flame bg-flame text-white;
+    @apply border-flame bg-flame text-ink-on;
   }
   .btn-primary:hover:not(:disabled) {
     @apply bg-flame-soft border-flame-soft;

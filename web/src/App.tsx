@@ -24,6 +24,7 @@ import {
 import { PublishAccountPicker } from './components/PublishAccountPicker';
 import { SourcePanel } from './components/SourcePanel';
 import { StepsLog } from './components/StepsLog';
+import { ThemeToggle } from './components/ThemeToggle';
 
 const ACTIVE_ACCOUNT_KEY = 'allegro.activeAccountId';
 
@@ -407,6 +408,7 @@ export default function App() {
 							onSwitch={setActiveAccountId}
 							onRefresh={refreshAccounts}
 						/>
+						<ThemeToggle />
 					</div>
 				</div>
 
