@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import {
 	api,
 	type ClonePayload,
@@ -119,9 +119,18 @@ export function GpsrPanel({
 	const [createError, setCreateError] = useState<string | null>(null);
 	const [creating, setCreating] = useState(false);
 
+	// Guards stale list responses when publishAccountId changes mid-flight.
+	const loadSeqRef = useRef(0);
+	// Once the operator dismisses an auto-opened create form, don't re-open it
+	// for the same source offer (reset when a new source offer loads).
+	const lastSourceRef = useRef<OfferGpsr | null | undefined>(undefined);
+	const producerDismissedRef = useRef(false);
+	const personDismissedRef = useRef(false);
+
 	// Load the target account's dictionaries whenever the publish account changes.
 	useEffect(() => {
 		if (!publishAccountId) return;
+		const seq = ++loadSeqRef.current;
 		setLoading(true);
 		setListError(null);
 		Promise.all([
@@ -129,11 +138,17 @@ export function GpsrPanel({
 			api.gpsr.listPersons(publishAccountId),
 		])
 			.then(([pr, pe]) => {
+				if (loadSeqRef.current !== seq) return;
 				setProducers(pr.responsibleProducers ?? []);
 				setPersons(pe.responsiblePersons ?? []);
 			})
-			.catch(e => setListError((e as Error).message))
-			.finally(() => setLoading(false));
+			.catch(e => {
+				if (loadSeqRef.current !== seq) return;
+				setListError((e as Error).message);
+			})
+			.finally(() => {
+				if (loadSeqRef.current === seq) setLoading(false);
+			});
 	}, [publishAccountId]);
 
 	// Prefill safety text from the source offer (TEXT is account-agnostic).
@@ -149,35 +164,57 @@ export function GpsrPanel({
 	}, [loading, producers, persons, sourceGpsr]);
 
 	// Cross-account + no match → open a create form prefilled from the source.
+	// `setXForm(f => f ?? …)` only opens when the form isn't already open, so
+	// re-firing (e.g. lists reload) never clobbers in-progress edits. A new
+	// source offer resets the per-source "dismissed" guard.
 	useEffect(() => {
 		if (loading || !crossAccount) return;
+		if (lastSourceRef.current !== sourceGpsr) {
+			lastSourceRef.current = sourceGpsr;
+			producerDismissedRef.current = false;
+			personDismissedRef.current = false;
+		}
 		const src = sourceGpsr?.responsibleProducer;
-		if (src && 'producerData' in src && !matchProducer(src, producers)) {
-			setProducerForm({
-				name: src.name,
-				publicName: src.producerData.tradeName,
-				countryCode: src.producerData.address.countryCode || 'PL',
-				street: src.producerData.address.street,
-				postalCode: src.producerData.address.postalCode,
-				city: src.producerData.address.city,
-				email: src.producerData.contact.email ?? '',
-				phoneNumber: src.producerData.contact.phoneNumber ?? '',
-				formUrl: src.producerData.contact.formUrl ?? '',
-			});
+		if (
+			src &&
+			'producerData' in src &&
+			!matchProducer(src, producers) &&
+			!producerDismissedRef.current
+		) {
+			setProducerForm(f =>
+				f ?? {
+					name: src.name,
+					publicName: src.producerData.tradeName,
+					countryCode: src.producerData.address.countryCode || 'PL',
+					street: src.producerData.address.street,
+					postalCode: src.producerData.address.postalCode,
+					city: src.producerData.address.city,
+					email: src.producerData.contact.email ?? '',
+					phoneNumber: src.producerData.contact.phoneNumber ?? '',
+					formUrl: src.producerData.contact.formUrl ?? '',
+				},
+			);
 		}
 		const srcP = sourceGpsr?.responsiblePerson;
-		if (srcP && 'personalData' in srcP && !matchPerson(srcP, persons)) {
-			setPersonForm({
-				name: srcP.name,
-				publicName: srcP.personalData.name,
-				countryCode: srcP.personalData.address.countryCode || 'PL',
-				street: srcP.personalData.address.street,
-				postalCode: srcP.personalData.address.postalCode,
-				city: srcP.personalData.address.city,
-				email: srcP.personalData.contact.email ?? '',
-				phoneNumber: srcP.personalData.contact.phoneNumber ?? '',
-				formUrl: srcP.personalData.contact.formUrl ?? '',
-			});
+		if (
+			srcP &&
+			'personalData' in srcP &&
+			!matchPerson(srcP, persons) &&
+			!personDismissedRef.current
+		) {
+			setPersonForm(f =>
+				f ?? {
+					name: srcP.name,
+					publicName: srcP.personalData.name,
+					countryCode: srcP.personalData.address.countryCode || 'PL',
+					street: srcP.personalData.address.street,
+					postalCode: srcP.personalData.address.postalCode,
+					city: srcP.personalData.address.city,
+					email: srcP.personalData.contact.email ?? '',
+					phoneNumber: srcP.personalData.contact.phoneNumber ?? '',
+					formUrl: srcP.personalData.contact.formUrl ?? '',
+				},
+			);
 		}
 	}, [loading, crossAccount, producers, persons, sourceGpsr]);
 
@@ -265,8 +302,12 @@ export function GpsrPanel({
 		}
 	};
 
-	const producerUnmatched = !!sourceGpsr?.responsibleProducer && !producerId;
-	const personUnmatched = !!sourceGpsr?.responsiblePerson && !personId;
+	// Suppressed while the lists are loading — otherwise the warning flashes
+	// before the match effect has had the data to run against.
+	const producerUnmatched =
+		!loading && !!sourceGpsr?.responsibleProducer && !producerId;
+	const personUnmatched =
+		!loading && !!sourceGpsr?.responsiblePerson && !personId;
 
 	return (
 		<section className='panel'>
@@ -292,9 +333,15 @@ export function GpsrPanel({
 						label: `${p.name} — ${p.producerData.tradeName}`,
 					}))}
 					createOpen={!!producerForm}
-					onToggleCreate={() =>
-						setProducerForm(f => (f ? null : { ...EMPTY_FORM }))
-					}
+					onToggleCreate={() => {
+						if (producerForm) {
+							setProducerForm(null);
+							producerDismissedRef.current = true;
+						} else {
+							setProducerForm({ ...EMPTY_FORM });
+							producerDismissedRef.current = false;
+						}
+					}}
 				/>
 				{producerForm && (
 					<GpsrCreateForm
@@ -302,7 +349,10 @@ export function GpsrPanel({
 						state={producerForm}
 						onChange={setProducerForm}
 						onSubmit={submitProducer}
-						onCancel={() => setProducerForm(null)}
+						onCancel={() => {
+							setProducerForm(null);
+							producerDismissedRef.current = true;
+						}}
 						busy={creating}
 						error={createError}
 					/>
@@ -319,9 +369,15 @@ export function GpsrPanel({
 						label: `${p.name} — ${p.personalData.name}`,
 					}))}
 					createOpen={!!personForm}
-					onToggleCreate={() =>
-						setPersonForm(f => (f ? null : { ...EMPTY_FORM }))
-					}
+					onToggleCreate={() => {
+						if (personForm) {
+							setPersonForm(null);
+							personDismissedRef.current = true;
+						} else {
+							setPersonForm({ ...EMPTY_FORM });
+							personDismissedRef.current = false;
+						}
+					}}
 				/>
 				{personForm && (
 					<GpsrCreateForm
@@ -329,7 +385,10 @@ export function GpsrPanel({
 						state={personForm}
 						onChange={setPersonForm}
 						onSubmit={submitPerson}
-						onCancel={() => setPersonForm(null)}
+						onCancel={() => {
+							setPersonForm(null);
+							personDismissedRef.current = true;
+						}}
 						busy={creating}
 						error={createError}
 					/>
