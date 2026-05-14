@@ -3,8 +3,12 @@ import type {
 	AllegroOffer,
 	AllegroParameter,
 	AllegroProduct,
+	AllegroProductSetItem,
 	ProductSearchHit,
 	PublicationCommandStatus,
+	ResponsibleProducerRef,
+	ResponsiblePersonRef,
+	SafetyInformationText,
 } from './types.js';
 
 export type DescriptionItem =
@@ -41,6 +45,27 @@ export interface CloneOptions {
 	 * (price, stock, delivery, returns).
 	 */
 	targetProductId?: string;
+	/**
+	 * GPSR data confirmed by the operator in the UI (GpsrPanel). Applied to
+	 * productSet[0]. A field set to `null` means "explicitly clear" — omitted
+	 * from the body. A field left `undefined` falls back to source carry-over.
+	 */
+	gpsr?: {
+		responsibleProducer?: ResponsibleProducerRef | null;
+		responsiblePerson?: ResponsiblePersonRef | null;
+		safetyInformation?: SafetyInformationText | null;
+	};
+	/**
+	 * Account-scoped offer dictionary references confirmed by the operator in
+	 * the UI (OfferRefsPanel). Each value: `{ id }` or `{ name }` to set,
+	 * `null` to clear, `undefined` to fall back to source carry-over.
+	 */
+	offerRefs?: {
+		shippingRates?: { id: string } | { name: string } | null;
+		returnPolicy?: { id: string } | { name: string } | null;
+		impliedWarranty?: { id: string } | { name: string } | null;
+		warranty?: { id: string } | { name: string } | null;
+	};
 	/** Dry run: build the body but don't POST. */
 	dryRun?: boolean;
 }
@@ -370,7 +395,6 @@ export async function buildCloneBody(
 				: { images: overriddenImages }),
 		productSet: [
 			{
-				...(productSetItem ?? {}),
 				product: newProduct,
 				// productSet quantity = how many units of the product are in this set
 				// (almost always 1 for laptops). It's NOT the available stock — and Allegro
@@ -378,6 +402,10 @@ export async function buildCloneBody(
 				quantity: {
 					value: Math.max(1, productSetItem?.quantity?.value ?? 1),
 				},
+				// GPSR fields are set explicitly — blindly spreading productSetItem
+				// would carry foreign-account ids on a cross-account clone and leak
+				// non-schema fields like `marketplaces`.
+				...resolveGpsr(productSetItem, options, crossAccount, steps),
 			},
 		],
 		sellingMode: applyPriceOverride(source.sellingMode, options.priceOverride),
@@ -394,7 +422,11 @@ export async function buildCloneBody(
 			...(source.publication ?? {}),
 			status: options.publicationStatus ?? 'INACTIVE',
 		},
-	});
+		// delivery / afterSalesServices / discounts: resolve account-scoped refs
+		// (shipping rates, return policy, warranties, wholesale price list) —
+		// must come after ...baseOffer so it overrides the source's copies.
+		...(resolveOfferRefs(source, options, crossAccount, steps) as Partial<AllegroOffer>),
+	} as AllegroOffer);
 
 	if (isTargetBind) {
 		steps.push({
@@ -405,6 +437,164 @@ export async function buildCloneBody(
 	}
 
 	return { body: body as Record<string, unknown>, matchedProduct };
+}
+
+type GpsrFields = Pick<
+	AllegroProductSetItem,
+	| 'responsibleProducer'
+	| 'responsiblePerson'
+	| 'safetyInformation'
+	| 'marketedBeforeGPSRObligation'
+>;
+
+/**
+ * Decide which GPSR fields go on the cloned productSet item.
+ *  - options.gpsr set        → operator confirmed values; non-null applied,
+ *    `null` is an explicit "clear" → omitted.
+ *  - same account, no override → carry source's GPSR refs as-is (ids valid).
+ *  - cross account, no override → producer/person ids belong to the SOURCE
+ *    account's dictionary and are invalid in the target — drop them and warn.
+ * safetyInformation (TEXT, no id) and marketedBeforeGPSRObligation (boolean)
+ * are account-agnostic, so they always carry from the source.
+ */
+function resolveGpsr(
+	sourceItem: AllegroProductSetItem | undefined,
+	options: CloneOptions,
+	crossAccount: boolean,
+	steps: CloneStep[],
+): GpsrFields {
+	const out: GpsrFields = {};
+
+	if (sourceItem?.safetyInformation != null) {
+		out.safetyInformation = sourceItem.safetyInformation;
+	}
+	if (sourceItem?.marketedBeforeGPSRObligation != null) {
+		out.marketedBeforeGPSRObligation = sourceItem.marketedBeforeGPSRObligation;
+	}
+
+	if (options.gpsr) {
+		// `value` sets the field, `null` explicitly clears it (drop from `out`),
+		// `undefined` leaves whatever was seeded above untouched. Handled
+		// symmetrically for all three fields.
+		const g = options.gpsr;
+		if (g.responsibleProducer) out.responsibleProducer = g.responsibleProducer;
+		else if (g.responsibleProducer === null) delete out.responsibleProducer;
+		if (g.responsiblePerson) out.responsiblePerson = g.responsiblePerson;
+		else if (g.responsiblePerson === null) delete out.responsiblePerson;
+		if (g.safetyInformation) out.safetyInformation = g.safetyInformation;
+		else if (g.safetyInformation === null) delete out.safetyInformation;
+		return out;
+	}
+
+	if (sourceItem?.responsibleProducer || sourceItem?.responsiblePerson) {
+		if (crossAccount) {
+			steps.push({
+				level: 'warn',
+				message:
+					'GPSR источника не перенесён (id чужого аккаунта) — укажи производителя/лицо в GPSR-панели',
+			});
+		} else {
+			if (sourceItem.responsibleProducer)
+				out.responsibleProducer = sourceItem.responsibleProducer;
+			if (sourceItem.responsiblePerson)
+				out.responsiblePerson = sourceItem.responsiblePerson;
+		}
+	}
+
+	return out;
+}
+
+/**
+ * Resolve account-scoped offer references for the clone:
+ *  - options.offerRefs.X set → apply (`{id}`/`{name}`, `null` clears).
+ *  - same account, no override → carry the source's ref as-is.
+ *  - cross account, no override → the id belongs to the source account's
+ *    dictionary and is invalid in the target — drop it and warn.
+ * Non-ref fields of delivery/afterSalesServices/discounts always carry.
+ * wholesalePriceList has no UI override: same-account carries, cross-account
+ * drops it.
+ */
+function resolveOfferRefs(
+	source: AllegroOffer,
+	options: CloneOptions,
+	crossAccount: boolean,
+	steps: CloneStep[],
+): { delivery?: unknown; afterSalesServices?: unknown; discounts?: unknown } {
+	const out: {
+		delivery?: Record<string, unknown>;
+		afterSalesServices?: Record<string, unknown>;
+		discounts?: Record<string, unknown>;
+	} = {};
+
+	const resolveRef = (
+		label: string,
+		sourceRef: { id?: string; name?: string } | undefined,
+		override: { id: string } | { name: string } | null | undefined,
+	): { id: string } | { name: string } | undefined => {
+		if (override !== undefined) return override === null ? undefined : override;
+		if (!sourceRef) return undefined;
+		if (!crossAccount) {
+			// Same account — carry the source ref. Prefer id; fall back to a
+			// name-only ref (Allegro allows { name } dictionary lookups too).
+			if (sourceRef.id) return { id: sourceRef.id };
+			if (sourceRef.name) return { name: sourceRef.name };
+			return undefined;
+		}
+		steps.push({
+			level: 'warn',
+			message: `${label} источника не перенесён (id чужого аккаунта) — укажи в панели «Справочники оферты»`,
+		});
+		return undefined;
+	};
+
+	// delivery — keep all source fields, replace only shippingRates.
+	if (source.delivery || options.offerRefs?.shippingRates !== undefined) {
+		const delivery: Record<string, unknown> = { ...(source.delivery ?? {}) };
+		const shippingRates = resolveRef(
+			'Cennik dostawy',
+			source.delivery?.shippingRates as { id?: string } | undefined,
+			options.offerRefs?.shippingRates,
+		);
+		if (shippingRates) delivery.shippingRates = shippingRates;
+		else delete delivery.shippingRates;
+		out.delivery = delivery;
+	}
+
+	// afterSalesServices — replace the three account-scoped refs.
+	const srcAss = source.afterSalesServices;
+	const hasAssOverride =
+		options.offerRefs?.returnPolicy !== undefined ||
+		options.offerRefs?.impliedWarranty !== undefined ||
+		options.offerRefs?.warranty !== undefined;
+	if (srcAss || hasAssOverride) {
+		const ass: Record<string, unknown> = { ...(srcAss ?? {}) };
+		const rp = resolveRef('Warunki zwrotów', srcAss?.returnPolicy ?? undefined, options.offerRefs?.returnPolicy);
+		const iw = resolveRef('Reklamacje', srcAss?.impliedWarranty ?? undefined, options.offerRefs?.impliedWarranty);
+		const wr = resolveRef('Gwarancja', srcAss?.warranty ?? undefined, options.offerRefs?.warranty);
+		if (rp) ass.returnPolicy = rp;
+		else delete ass.returnPolicy;
+		if (iw) ass.impliedWarranty = iw;
+		else delete ass.impliedWarranty;
+		if (wr) ass.warranty = wr;
+		else delete ass.warranty;
+		out.afterSalesServices = ass;
+	}
+
+	// discounts.wholesalePriceList — account-scoped promotion id, no UI override.
+	const srcDiscounts = source.discounts as Record<string, unknown> | undefined;
+	if (srcDiscounts) {
+		const discounts = { ...srcDiscounts };
+		if (crossAccount && 'wholesalePriceList' in discounts) {
+			delete discounts.wholesalePriceList;
+			steps.push({
+				level: 'warn',
+				message: 'Cennik hurtowy источника не перенесён (id чужого аккаунта)',
+			});
+		}
+		out.discounts = discounts;
+	}
+
+	return out;
 }
 
 /**
@@ -567,14 +757,13 @@ function rewriteTitle(
 /**
  * Whitelist of top-level fields that Allegro accepts in POST /sale/product-offers.
  * Anything outside this list is server-managed metadata (id, createdAt, statistics,
- * additionalMarketplaces, base, endedBy, warnings, validation, marketplace, …) and
- * must be removed before submission, otherwise Allegro returns 422 UnknownJSONProperty.
+ * base, endedBy, warnings, validation, marketplace, …) and must be removed before
+ * submission, otherwise Allegro returns 422 UnknownJSONProperty.
  */
 const POST_OFFER_TOP_LEVEL_WHITELIST = new Set([
 	'name',
 	'category',
 	'productSet',
-	'ean',
 	'external',
 	'description',
 	'images',
@@ -591,11 +780,13 @@ const POST_OFFER_TOP_LEVEL_WHITELIST = new Set([
 	'location',
 	'sizeTable',
 	'attachments',
-	'promotion',
 	'fundraisingCampaign',
 	'compatibilityList',
 	'language',
-	'messageToSellerForm',
+	'b2b',
+	'taxSettings',
+	'additionalMarketplaces',
+	'messageToSellerSettings',
 ]);
 
 // Note: deliberately exclude startingAt/endingAt — copying absolute timestamps

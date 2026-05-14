@@ -5,7 +5,7 @@ import {
   buildCloneBody,
   cloneOffer,
 } from './clone.js';
-import type { AllegroOffer } from './types.js';
+import type { AllegroOffer, AllegroProductSetItem } from './types.js';
 import type { AllegroClient } from './allegro.js';
 
 describe('substituteValueVariants', () => {
@@ -69,10 +69,9 @@ describe('stripReadonlyFields', () => {
     expect(out.publication).toEqual({ status: 'ACTIVE', duration: 'P30D' });
   });
 
-  it('drops Allegro server-managed metadata (additionalMarketplaces, base, endedBy, warnings, validation, marketplace, statistics)', () => {
+  it('drops Allegro server-managed metadata (base, endedBy, warnings, validation, marketplace, statistics)', () => {
     const out = stripReadonlyFields({
       name: 'Test',
-      additionalMarketplaces: { 'allegro-cz': { publication: {} } },
       base: { foo: 'bar' },
       endedBy: 'BUYER',
       warnings: ['x'],
@@ -80,7 +79,6 @@ describe('stripReadonlyFields', () => {
       marketplace: { id: 'allegro-pl' },
       statistics: { sold: 5 },
     } as unknown as AllegroOffer);
-    expect(out).not.toHaveProperty('additionalMarketplaces');
     expect(out).not.toHaveProperty('base');
     expect(out).not.toHaveProperty('endedBy');
     expect(out).not.toHaveProperty('warnings');
@@ -121,6 +119,33 @@ describe('stripReadonlyFields', () => {
       format: 'BUY_NOW',
       price: { amount: '99.00', currency: 'PLN' },
     });
+  });
+
+  it('keeps b2b, taxSettings, additionalMarketplaces, messageToSellerSettings', () => {
+    const out = stripReadonlyFields({
+      name: 'Test',
+      b2b: { buyableOnlyByBusiness: true },
+      taxSettings: { rate: '23' },
+      additionalMarketplaces: { 'allegro-cz': { sellingMode: { price: { amount: '10', currency: 'CZK' } } } },
+      messageToSellerSettings: { mode: 'OPTIONAL' },
+    } as unknown as AllegroOffer);
+    expect(out).toHaveProperty('b2b');
+    expect(out).toHaveProperty('taxSettings');
+    expect(out).toHaveProperty('additionalMarketplaces');
+    expect(out).toHaveProperty('messageToSellerSettings');
+  });
+
+  it('strips ean, promotion, messageToSellerForm (not in SaleProductOfferRequestV1)', () => {
+    const out = stripReadonlyFields({
+      name: 'Test',
+      ean: '5901234123457',
+      promotion: { emphasized: true },
+      messageToSellerForm: { id: 'x' },
+    } as unknown as AllegroOffer);
+    expect(out).not.toHaveProperty('ean');
+    expect(out).not.toHaveProperty('promotion');
+    expect(out).not.toHaveProperty('messageToSellerForm');
+    expect(out).toHaveProperty('name', 'Test');
   });
 });
 
@@ -425,5 +450,281 @@ describe('cloneOffer dry run', () => {
 
     expect(res.outcome).toEqual({ kind: 'dry-run' });
     expect((res.body as { name: string }).name).toContain('512');
+  });
+});
+
+describe('buildCloneBody — GPSR', () => {
+  const baseProduct = {
+    id: 'PROD-256',
+    name: 'Lenovo IdeaPad 5',
+    category: { id: '491' },
+    parameters: [{ id: 'P_RAM', name: 'Pamięć RAM', values: ['16 GB'] }],
+  };
+
+  const gpsrOffer: AllegroOffer = {
+    id: 'src-1',
+    name: 'Lenovo IdeaPad 5',
+    category: { id: '491' },
+    productSet: [
+      {
+        product: baseProduct,
+        quantity: { value: 1 },
+        responsibleProducer: { type: 'ID', id: 'PROD-SRC-1' },
+        responsiblePerson: { id: 'PERSON-SRC-1' },
+        safetyInformation: { type: 'TEXT', description: 'Safe to use.' },
+        marketedBeforeGPSRObligation: true,
+      },
+    ],
+    sellingMode: { format: 'BUY_NOW', price: { amount: '2999.00', currency: 'PLN' } },
+    stock: { available: 1, unit: 'UNIT' },
+    publication: { status: 'ACTIVE' as const },
+  };
+
+  function gpsrClient(): AllegroClient {
+    return {
+      getProduct: async (id: string) => ({
+        id,
+        name: baseProduct.name,
+        category: baseProduct.category,
+        parameters: baseProduct.parameters,
+      }),
+      searchProducts: async () => ({ products: [] }),
+    } as unknown as AllegroClient;
+  }
+
+  it('same-account: carries source responsibleProducer/Person by id', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const { body } = await buildCloneBody(
+      gpsrClient(),
+      gpsrOffer,
+      { sourceOfferId: 'src-1', paramOverrides: {} },
+      steps,
+    );
+    const item = (body as { productSet: AllegroProductSetItem[] }).productSet[0];
+    expect(item.responsibleProducer).toEqual({ type: 'ID', id: 'PROD-SRC-1' });
+    expect(item.responsiblePerson).toEqual({ id: 'PERSON-SRC-1' });
+    expect(item.safetyInformation).toEqual({ type: 'TEXT', description: 'Safe to use.' });
+    expect(item.marketedBeforeGPSRObligation).toBe(true);
+  });
+
+  it('cross-account: drops producer/person ids and warns; keeps safetyInformation', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const { body } = await buildCloneBody(
+      gpsrClient(),
+      gpsrOffer,
+      { sourceOfferId: 'src-1', paramOverrides: {} },
+      steps,
+      gpsrClient(),
+    );
+    const item = (body as { productSet: AllegroProductSetItem[] }).productSet[0];
+    expect(item.responsibleProducer).toBeUndefined();
+    expect(item.responsiblePerson).toBeUndefined();
+    expect(item.safetyInformation).toEqual({ type: 'TEXT', description: 'Safe to use.' });
+    expect(item.marketedBeforeGPSRObligation).toBe(true);
+    expect(steps.some(s => s.level === 'warn' && /GPSR/.test(s.message))).toBe(true);
+  });
+
+  it('applies options.gpsr over the source', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const { body } = await buildCloneBody(
+      gpsrClient(),
+      gpsrOffer,
+      {
+        sourceOfferId: 'src-1',
+        paramOverrides: {},
+        gpsr: {
+          responsibleProducer: { type: 'ID', id: 'PROD-TGT-9' },
+          responsiblePerson: { id: 'PERSON-TGT-9' },
+          safetyInformation: { type: 'TEXT', description: 'New text.' },
+        },
+      },
+      steps,
+    );
+    const item = (body as { productSet: AllegroProductSetItem[] }).productSet[0];
+    expect(item.responsibleProducer).toEqual({ type: 'ID', id: 'PROD-TGT-9' });
+    expect(item.responsiblePerson).toEqual({ id: 'PERSON-TGT-9' });
+    expect(item.safetyInformation).toEqual({ type: 'TEXT', description: 'New text.' });
+  });
+
+  it('omits a GPSR field when options.gpsr sets it to null', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const { body } = await buildCloneBody(
+      gpsrClient(),
+      gpsrOffer,
+      {
+        sourceOfferId: 'src-1',
+        paramOverrides: {},
+        gpsr: {
+          responsibleProducer: null,
+          responsiblePerson: null,
+          safetyInformation: null,
+        },
+      },
+      steps,
+    );
+    const item = (body as { productSet: AllegroProductSetItem[] }).productSet[0];
+    expect(item.responsibleProducer).toBeUndefined();
+    expect(item.responsiblePerson).toBeUndefined();
+    expect(item.safetyInformation).toBeUndefined();
+  });
+
+  it('does not leak productSet[].marketplaces from the source', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const offerWithMarketplaces = {
+      ...gpsrOffer,
+      productSet: [
+        {
+          product: baseProduct,
+          quantity: { value: 1 },
+          marketplaces: { 'allegro-cz': { foo: 'bar' } },
+        },
+      ],
+    } as unknown as AllegroOffer;
+    const { body } = await buildCloneBody(
+      gpsrClient(),
+      offerWithMarketplaces,
+      { sourceOfferId: 'src-1', paramOverrides: {} },
+      steps,
+    );
+    const item = (body as { productSet: Record<string, unknown>[] }).productSet[0];
+    expect(item).not.toHaveProperty('marketplaces');
+  });
+});
+
+describe('buildCloneBody — offer refs', () => {
+  const baseProduct = {
+    id: 'PROD-256',
+    name: 'Lenovo IdeaPad 5',
+    category: { id: '491' },
+    parameters: [{ id: 'P_RAM', name: 'Pamięć RAM', values: ['16 GB'] }],
+  };
+
+  const refsOffer: AllegroOffer = {
+    id: 'src-1',
+    name: 'Lenovo IdeaPad 5',
+    category: { id: '491' },
+    productSet: [{ product: baseProduct, quantity: { value: 1 } }],
+    sellingMode: { format: 'BUY_NOW', price: { amount: '1', currency: 'PLN' } },
+    stock: { available: 1, unit: 'UNIT' },
+    publication: { status: 'ACTIVE' as const },
+    delivery: { handlingTime: 'PT24H', shippingRates: { id: 'SR-SRC' } },
+    afterSalesServices: {
+      returnPolicy: { id: 'RP-SRC' },
+      impliedWarranty: { id: 'IW-SRC' },
+      warranty: { id: 'WR-SRC' },
+    },
+    discounts: { wholesalePriceList: { id: 'WPL-SRC' } },
+  } as AllegroOffer;
+
+  function refsClient(): AllegroClient {
+    return {
+      getProduct: async (id: string) => ({
+        id,
+        name: baseProduct.name,
+        category: baseProduct.category,
+        parameters: baseProduct.parameters,
+      }),
+      searchProducts: async () => ({ products: [] }),
+    } as unknown as AllegroClient;
+  }
+
+  it('same-account: carries delivery/afterSalesServices refs and wholesalePriceList', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const { body } = await buildCloneBody(
+      refsClient(),
+      refsOffer,
+      { sourceOfferId: 'src-1', paramOverrides: {} },
+      steps,
+    );
+    const b = body as {
+      delivery: { handlingTime?: string; shippingRates?: { id: string } };
+      afterSalesServices: {
+        returnPolicy?: { id: string };
+        impliedWarranty?: { id: string };
+        warranty?: { id: string };
+      };
+      discounts: { wholesalePriceList?: { id: string } };
+    };
+    expect(b.delivery.shippingRates).toEqual({ id: 'SR-SRC' });
+    expect(b.delivery.handlingTime).toBe('PT24H');
+    expect(b.afterSalesServices.returnPolicy).toEqual({ id: 'RP-SRC' });
+    expect(b.afterSalesServices.impliedWarranty).toEqual({ id: 'IW-SRC' });
+    expect(b.afterSalesServices.warranty).toEqual({ id: 'WR-SRC' });
+    expect(b.discounts.wholesalePriceList).toEqual({ id: 'WPL-SRC' });
+  });
+
+  it('cross-account: drops account-scoped ids + warns, keeps other delivery fields', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const { body } = await buildCloneBody(
+      refsClient(),
+      refsOffer,
+      { sourceOfferId: 'src-1', paramOverrides: {} },
+      steps,
+      refsClient(),
+    );
+    const b = body as {
+      delivery: { handlingTime?: string; shippingRates?: { id: string } };
+      afterSalesServices: { returnPolicy?: unknown; impliedWarranty?: unknown; warranty?: unknown };
+      discounts: { wholesalePriceList?: unknown };
+    };
+    expect(b.delivery.shippingRates).toBeUndefined();
+    expect(b.delivery.handlingTime).toBe('PT24H');
+    expect(b.afterSalesServices.returnPolicy).toBeUndefined();
+    expect(b.afterSalesServices.impliedWarranty).toBeUndefined();
+    expect(b.afterSalesServices.warranty).toBeUndefined();
+    expect(b.discounts.wholesalePriceList).toBeUndefined();
+    // 5 account-scoped refs dropped → one warn each (shippingRates,
+    // returnPolicy, impliedWarranty, warranty, wholesalePriceList).
+    expect(steps.filter(s => s.level === 'warn').length).toBeGreaterThanOrEqual(5);
+  });
+
+  it('applies options.offerRefs over the source', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const { body } = await buildCloneBody(
+      refsClient(),
+      refsOffer,
+      {
+        sourceOfferId: 'src-1',
+        paramOverrides: {},
+        offerRefs: {
+          shippingRates: { id: 'SR-TGT' },
+          returnPolicy: { name: 'Zwroty 14 dni' },
+          impliedWarranty: null,
+        },
+      },
+      steps,
+      refsClient(),
+    );
+    const b = body as {
+      delivery: { shippingRates?: { id: string } };
+      afterSalesServices: {
+        returnPolicy?: { name: string };
+        impliedWarranty?: unknown;
+        warranty?: unknown;
+      };
+    };
+    expect(b.delivery.shippingRates).toEqual({ id: 'SR-TGT' });
+    expect(b.afterSalesServices.returnPolicy).toEqual({ name: 'Zwroty 14 dni' });
+    expect(b.afterSalesServices.impliedWarranty).toBeUndefined();
+    // warranty has no override and this is a cross-account clone → dropped.
+    expect(b.afterSalesServices.warranty).toBeUndefined();
+  });
+
+  it('adds delivery.shippingRates from options when the source has no delivery', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const offerNoDelivery = { ...refsOffer, delivery: undefined } as AllegroOffer;
+    const { body } = await buildCloneBody(
+      refsClient(),
+      offerNoDelivery,
+      {
+        sourceOfferId: 'src-1',
+        paramOverrides: {},
+        offerRefs: { shippingRates: { id: 'SR-TGT' } },
+      },
+      steps,
+      refsClient(),
+    );
+    const b = body as { delivery?: { shippingRates?: { id: string } } };
+    expect(b.delivery?.shippingRates).toEqual({ id: 'SR-TGT' });
   });
 });

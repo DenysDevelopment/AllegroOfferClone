@@ -21,6 +21,10 @@ type CatalogProduct = ProductSearchHit & { description?: DescriptionSections };
 
 const DEFAULT_CATEGORY_ID = '491'; // Laptopy → Komputery → Elektronika
 
+// Имена категорийных параметров Allegro про сертификаты/безопасность/батарею —
+// выносим в отдельную видимую секцию, а не прячем в «Необязательные».
+const CERT_PARAM_RE = /certyfikat|zgodno|bateri|bezpiecze/i;
+
 // Allegro's standardized description accepts only a strict HTML subset.
 // Anything outside this set triggers 422 VALIDATION_ERROR "Nieprawidłowy podzbiór HTML".
 // Confirmed allowed: p, h1, h2, ul, ol, li, strong.
@@ -280,7 +284,14 @@ export function NewProductPanel({
 	};
 
 	const required = useMemo(() => params.filter(p => p.required), [params]);
-	const optional = useMemo(() => params.filter(p => !p.required), [params]);
+	const certificates = useMemo(
+		() => params.filter(p => !p.required && CERT_PARAM_RE.test(p.name)),
+		[params],
+	);
+	const optional = useMemo(
+		() => params.filter(p => !p.required && !CERT_PARAM_RE.test(p.name)),
+		[params],
+	);
 
 	const setParamValue = (
 		p: CategoryParameter,
@@ -495,10 +506,25 @@ export function NewProductPanel({
 							))}
 						</div>
 					)}
+					{certificates.length > 0 && (
+						<div className='space-y-2 border-t border-border-muted pt-3'>
+							<div className='text-[11px] text-flame uppercase tracking-wide font-semibold'>
+								Сертификаты и безопасность
+							</div>
+							{certificates.map(p => (
+								<ParamRow
+									key={p.id}
+									param={p}
+									value={values[p.id]}
+									onChange={raw => setParamValue(p, raw)}
+								/>
+							))}
+						</div>
+					)}
 					{optional.length > 0 && (
 						<details className='border-t border-border-muted pt-3'>
 							<summary className='text-[12px] text-ink-muted cursor-pointer hover:text-ink'>
-								Необязательные ({optional.length})
+								Прочие необязательные ({optional.length})
 							</summary>
 							<div className='space-y-2 pt-2'>
 								{optional.map(p => (

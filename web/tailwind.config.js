@@ -1,6 +1,7 @@
 /** @type {import('tailwindcss').Config} */
 export default {
   content: ['./index.html', './src/**/*.{ts,tsx}'],
+  darkMode: 'class',
   theme: {
     extend: {
       fontFamily: {
@@ -16,35 +17,32 @@ export default {
         mono: ['ui-monospace', 'SFMono-Regular', 'Menlo', 'Consolas', 'monospace'],
       },
       colors: {
-        // Surfaces — warm off-white CRM look
-        app: '#F7F5F0',          // page background
-        card: '#FFFFFF',         // panel / card
-        soft: '#FBF8F3',         // subtle inset surface
+        app: 'rgb(var(--c-app) / <alpha-value>)',
+        card: 'rgb(var(--c-card) / <alpha-value>)',
+        soft: 'rgb(var(--c-soft) / <alpha-value>)',
         border: {
-          DEFAULT: '#ECE7DF',    // standard divider
-          muted: '#F3EFE9',      // softer line
-          strong: '#D8D2C7',     // emphasized
+          DEFAULT: 'rgb(var(--c-border) / <alpha-value>)',
+          muted: 'rgb(var(--c-border-muted) / <alpha-value>)',
+          strong: 'rgb(var(--c-border-strong) / <alpha-value>)',
         },
-        // Text
         ink: {
-          DEFAULT: '#1F1F23',    // primary text
-          muted: '#6E6E76',
-          faint: '#A8A8B0',
-          on: '#FFFFFF',
+          DEFAULT: 'rgb(var(--c-ink) / <alpha-value>)',
+          muted: 'rgb(var(--c-ink-muted) / <alpha-value>)',
+          faint: 'rgb(var(--c-ink-faint) / <alpha-value>)',
+          on: 'rgb(var(--c-ink-on) / <alpha-value>)',
         },
-        // Brand orange (matches LaptopGuru CRM)
         flame: {
-          DEFAULT: '#FF6B35',
-          soft: '#FF8A5C',
-          tint: '#FFF1E8',       // very light orange (active row bg)
-          ring: '#FFD2BA',
+          DEFAULT: 'rgb(var(--c-flame) / <alpha-value>)',
+          soft: 'rgb(var(--c-flame-soft) / <alpha-value>)',
+          tint: 'rgb(var(--c-flame-tint) / <alpha-value>)',
+          ring: 'rgb(var(--c-flame-ring) / <alpha-value>)',
         },
-        ok: '#10B981',
-        okTint: '#E8F8F1',
-        warn: '#F59E0B',
-        warnTint: '#FFF6E5',
-        bad: '#EF4444',
-        badTint: '#FDECEC',
+        ok: 'rgb(var(--c-ok) / <alpha-value>)',
+        okTint: 'rgb(var(--c-ok-tint) / <alpha-value>)',
+        warn: 'rgb(var(--c-warn) / <alpha-value>)',
+        warnTint: 'rgb(var(--c-warn-tint) / <alpha-value>)',
+        bad: 'rgb(var(--c-bad) / <alpha-value>)',
+        badTint: 'rgb(var(--c-bad-tint) / <alpha-value>)',
       },
       borderRadius: {
         DEFAULT: '8px',
@@ -54,9 +52,9 @@ export default {
         xl: '16px',
       },
       boxShadow: {
-        card: '0 1px 2px rgba(15, 15, 20, 0.04), 0 0 0 1px rgba(15, 15, 20, 0.04)',
-        pop:  '0 4px 12px rgba(15, 15, 20, 0.06), 0 0 0 1px rgba(15, 15, 20, 0.05)',
-        focus: '0 0 0 3px rgba(255, 107, 53, 0.18)',
+        card: 'var(--shadow-card)',
+        pop: 'var(--shadow-pop)',
+        focus: '0 0 0 3px rgb(var(--c-flame) / 0.22)',
       },
       animation: {
         'fade-up': 'fadeUp 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both',
