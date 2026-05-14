@@ -80,10 +80,14 @@ export interface SafetyInformationText {
   description: string;
 }
 
-/** GPSR data read off the source offer's productSet[0] (preview). */
+/**
+ * GPSR data read off the source offer's productSet[0] (preview). The server
+ * resolves id refs to the full record; if that lookup fails it falls back to
+ * the bare ref — hence the `| ...Ref` union members.
+ */
 export interface OfferGpsr {
-  responsibleProducer?: ResponsibleProducer | { type: 'NAME'; name: string };
-  responsiblePerson?: ResponsiblePerson | { name: string };
+  responsibleProducer?: ResponsibleProducer | ResponsibleProducerRef;
+  responsiblePerson?: ResponsiblePerson | ResponsiblePersonRef;
   safetyInformation?: SafetyInformationText;
   marketedBeforeGPSRObligation?: boolean | null;
 }
