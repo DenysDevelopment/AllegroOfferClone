@@ -3,8 +3,12 @@ import type {
 	AllegroOffer,
 	AllegroParameter,
 	AllegroProduct,
+	AllegroProductSetItem,
 	ProductSearchHit,
 	PublicationCommandStatus,
+	ResponsibleProducerRef,
+	ResponsiblePersonRef,
+	SafetyInformationText,
 } from './types.js';
 
 export type DescriptionItem =
@@ -41,6 +45,16 @@ export interface CloneOptions {
 	 * (price, stock, delivery, returns).
 	 */
 	targetProductId?: string;
+	/**
+	 * GPSR data confirmed by the operator in the UI (GpsrPanel). Applied to
+	 * productSet[0]. A field set to `null` means "explicitly clear" — omitted
+	 * from the body. A field left `undefined` falls back to source carry-over.
+	 */
+	gpsr?: {
+		responsibleProducer?: ResponsibleProducerRef | null;
+		responsiblePerson?: ResponsiblePersonRef | null;
+		safetyInformation?: SafetyInformationText | null;
+	};
 	/** Dry run: build the body but don't POST. */
 	dryRun?: boolean;
 }
@@ -370,7 +384,6 @@ export async function buildCloneBody(
 				: { images: overriddenImages }),
 		productSet: [
 			{
-				...(productSetItem ?? {}),
 				product: newProduct,
 				// productSet quantity = how many units of the product are in this set
 				// (almost always 1 for laptops). It's NOT the available stock — and Allegro
@@ -378,6 +391,10 @@ export async function buildCloneBody(
 				quantity: {
 					value: Math.max(1, productSetItem?.quantity?.value ?? 1),
 				},
+				// GPSR fields are set explicitly — blindly spreading productSetItem
+				// would carry foreign-account ids on a cross-account clone and leak
+				// non-schema fields like `marketplaces`.
+				...resolveGpsr(productSetItem, options, crossAccount, steps),
 			},
 		],
 		sellingMode: applyPriceOverride(source.sellingMode, options.priceOverride),
@@ -405,6 +422,66 @@ export async function buildCloneBody(
 	}
 
 	return { body: body as Record<string, unknown>, matchedProduct };
+}
+
+type GpsrFields = Pick<
+	AllegroProductSetItem,
+	| 'responsibleProducer'
+	| 'responsiblePerson'
+	| 'safetyInformation'
+	| 'marketedBeforeGPSRObligation'
+>;
+
+/**
+ * Decide which GPSR fields go on the cloned productSet item.
+ *  - options.gpsr set        → operator confirmed values; non-null applied,
+ *    `null` is an explicit "clear" → omitted.
+ *  - same account, no override → carry source's GPSR refs as-is (ids valid).
+ *  - cross account, no override → producer/person ids belong to the SOURCE
+ *    account's dictionary and are invalid in the target — drop them and warn.
+ * safetyInformation (TEXT, no id) and marketedBeforeGPSRObligation (boolean)
+ * are account-agnostic, so they always carry from the source.
+ */
+function resolveGpsr(
+	sourceItem: AllegroProductSetItem | undefined,
+	options: CloneOptions,
+	crossAccount: boolean,
+	steps: CloneStep[],
+): GpsrFields {
+	const out: GpsrFields = {};
+
+	if (sourceItem?.safetyInformation) {
+		out.safetyInformation = sourceItem.safetyInformation;
+	}
+	if (sourceItem?.marketedBeforeGPSRObligation != null) {
+		out.marketedBeforeGPSRObligation = sourceItem.marketedBeforeGPSRObligation;
+	}
+
+	if (options.gpsr) {
+		const g = options.gpsr;
+		if (g.responsibleProducer) out.responsibleProducer = g.responsibleProducer;
+		if (g.responsiblePerson) out.responsiblePerson = g.responsiblePerson;
+		if (g.safetyInformation) out.safetyInformation = g.safetyInformation;
+		else if (g.safetyInformation === null) delete out.safetyInformation;
+		return out;
+	}
+
+	if (sourceItem?.responsibleProducer || sourceItem?.responsiblePerson) {
+		if (crossAccount) {
+			steps.push({
+				level: 'warn',
+				message:
+					'GPSR источника не перенесён (id чужого аккаунта) — укажи производителя/лицо в GPSR-панели',
+			});
+		} else {
+			if (sourceItem.responsibleProducer)
+				out.responsibleProducer = sourceItem.responsibleProducer;
+			if (sourceItem.responsiblePerson)
+				out.responsiblePerson = sourceItem.responsiblePerson;
+		}
+	}
+
+	return out;
 }
 
 /**

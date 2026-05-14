@@ -5,7 +5,7 @@ import {
   buildCloneBody,
   cloneOffer,
 } from './clone.js';
-import type { AllegroOffer } from './types.js';
+import type { AllegroOffer, AllegroProductSetItem } from './types.js';
 import type { AllegroClient } from './allegro.js';
 
 describe('substituteValueVariants', () => {
@@ -450,5 +450,143 @@ describe('cloneOffer dry run', () => {
 
     expect(res.outcome).toEqual({ kind: 'dry-run' });
     expect((res.body as { name: string }).name).toContain('512');
+  });
+});
+
+describe('buildCloneBody — GPSR', () => {
+  const baseProduct = {
+    id: 'PROD-256',
+    name: 'Lenovo IdeaPad 5',
+    category: { id: '491' },
+    parameters: [{ id: 'P_RAM', name: 'Pamięć RAM', values: ['16 GB'] }],
+  };
+
+  const gpsrOffer: AllegroOffer = {
+    id: 'src-1',
+    name: 'Lenovo IdeaPad 5',
+    category: { id: '491' },
+    productSet: [
+      {
+        product: baseProduct,
+        quantity: { value: 1 },
+        responsibleProducer: { type: 'ID', id: 'PROD-SRC-1' },
+        responsiblePerson: { id: 'PERSON-SRC-1' },
+        safetyInformation: { type: 'TEXT', description: 'Safe to use.' },
+        marketedBeforeGPSRObligation: true,
+      },
+    ],
+    sellingMode: { format: 'BUY_NOW', price: { amount: '2999.00', currency: 'PLN' } },
+    stock: { available: 1, unit: 'UNIT' },
+    publication: { status: 'ACTIVE' as const },
+  };
+
+  function gpsrClient(): AllegroClient {
+    return {
+      getProduct: async (id: string) => ({
+        id,
+        name: baseProduct.name,
+        category: baseProduct.category,
+        parameters: baseProduct.parameters,
+      }),
+      searchProducts: async () => ({ products: [] }),
+    } as unknown as AllegroClient;
+  }
+
+  it('same-account: carries source responsibleProducer/Person by id', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const { body } = await buildCloneBody(
+      gpsrClient(),
+      gpsrOffer,
+      { sourceOfferId: 'src-1', paramOverrides: {} },
+      steps,
+    );
+    const item = (body as { productSet: AllegroProductSetItem[] }).productSet[0];
+    expect(item.responsibleProducer).toEqual({ type: 'ID', id: 'PROD-SRC-1' });
+    expect(item.responsiblePerson).toEqual({ id: 'PERSON-SRC-1' });
+    expect(item.safetyInformation).toEqual({ type: 'TEXT', description: 'Safe to use.' });
+    expect(item.marketedBeforeGPSRObligation).toBe(true);
+  });
+
+  it('cross-account: drops producer/person ids and warns; keeps safetyInformation', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const { body } = await buildCloneBody(
+      gpsrClient(),
+      gpsrOffer,
+      { sourceOfferId: 'src-1', paramOverrides: {} },
+      steps,
+      gpsrClient(),
+    );
+    const item = (body as { productSet: AllegroProductSetItem[] }).productSet[0];
+    expect(item.responsibleProducer).toBeUndefined();
+    expect(item.responsiblePerson).toBeUndefined();
+    expect(item.safetyInformation).toEqual({ type: 'TEXT', description: 'Safe to use.' });
+    expect(item.marketedBeforeGPSRObligation).toBe(true);
+    expect(steps.some(s => s.level === 'warn' && /GPSR/.test(s.message))).toBe(true);
+  });
+
+  it('applies options.gpsr over the source', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const { body } = await buildCloneBody(
+      gpsrClient(),
+      gpsrOffer,
+      {
+        sourceOfferId: 'src-1',
+        paramOverrides: {},
+        gpsr: {
+          responsibleProducer: { type: 'ID', id: 'PROD-TGT-9' },
+          responsiblePerson: { id: 'PERSON-TGT-9' },
+          safetyInformation: { type: 'TEXT', description: 'New text.' },
+        },
+      },
+      steps,
+    );
+    const item = (body as { productSet: AllegroProductSetItem[] }).productSet[0];
+    expect(item.responsibleProducer).toEqual({ type: 'ID', id: 'PROD-TGT-9' });
+    expect(item.responsiblePerson).toEqual({ id: 'PERSON-TGT-9' });
+    expect(item.safetyInformation).toEqual({ type: 'TEXT', description: 'New text.' });
+  });
+
+  it('omits a GPSR field when options.gpsr sets it to null', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const { body } = await buildCloneBody(
+      gpsrClient(),
+      gpsrOffer,
+      {
+        sourceOfferId: 'src-1',
+        paramOverrides: {},
+        gpsr: {
+          responsibleProducer: null,
+          responsiblePerson: null,
+          safetyInformation: null,
+        },
+      },
+      steps,
+    );
+    const item = (body as { productSet: AllegroProductSetItem[] }).productSet[0];
+    expect(item.responsibleProducer).toBeUndefined();
+    expect(item.responsiblePerson).toBeUndefined();
+    expect(item.safetyInformation).toBeUndefined();
+  });
+
+  it('does not leak productSet[].marketplaces from the source', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const offerWithMarketplaces = {
+      ...gpsrOffer,
+      productSet: [
+        {
+          product: baseProduct,
+          quantity: { value: 1 },
+          marketplaces: { 'allegro-cz': { foo: 'bar' } },
+        },
+      ],
+    } as unknown as AllegroOffer;
+    const { body } = await buildCloneBody(
+      gpsrClient(),
+      offerWithMarketplaces,
+      { sourceOfferId: 'src-1', paramOverrides: {} },
+      steps,
+    );
+    const item = (body as { productSet: Record<string, unknown>[] }).productSet[0];
+    expect(item).not.toHaveProperty('marketplaces');
   });
 });
