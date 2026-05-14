@@ -574,7 +574,6 @@ const POST_OFFER_TOP_LEVEL_WHITELIST = new Set([
 	'name',
 	'category',
 	'productSet',
-	'ean',
 	'external',
 	'description',
 	'images',
@@ -591,11 +590,13 @@ const POST_OFFER_TOP_LEVEL_WHITELIST = new Set([
 	'location',
 	'sizeTable',
 	'attachments',
-	'promotion',
 	'fundraisingCampaign',
 	'compatibilityList',
 	'language',
-	'messageToSellerForm',
+	'b2b',
+	'taxSettings',
+	'additionalMarketplaces',
+	'messageToSellerSettings',
 ]);
 
 // Note: deliberately exclude startingAt/endingAt — copying absolute timestamps

@@ -69,10 +69,9 @@ describe('stripReadonlyFields', () => {
     expect(out.publication).toEqual({ status: 'ACTIVE', duration: 'P30D' });
   });
 
-  it('drops Allegro server-managed metadata (additionalMarketplaces, base, endedBy, warnings, validation, marketplace, statistics)', () => {
+  it('drops Allegro server-managed metadata (base, endedBy, warnings, validation, marketplace, statistics)', () => {
     const out = stripReadonlyFields({
       name: 'Test',
-      additionalMarketplaces: { 'allegro-cz': { publication: {} } },
       base: { foo: 'bar' },
       endedBy: 'BUYER',
       warnings: ['x'],
@@ -80,7 +79,6 @@ describe('stripReadonlyFields', () => {
       marketplace: { id: 'allegro-pl' },
       statistics: { sold: 5 },
     } as unknown as AllegroOffer);
-    expect(out).not.toHaveProperty('additionalMarketplaces');
     expect(out).not.toHaveProperty('base');
     expect(out).not.toHaveProperty('endedBy');
     expect(out).not.toHaveProperty('warnings');
@@ -121,6 +119,33 @@ describe('stripReadonlyFields', () => {
       format: 'BUY_NOW',
       price: { amount: '99.00', currency: 'PLN' },
     });
+  });
+
+  it('keeps b2b, taxSettings, additionalMarketplaces, messageToSellerSettings', () => {
+    const out = stripReadonlyFields({
+      name: 'Test',
+      b2b: { buyableOnlyByBusiness: true },
+      taxSettings: { rate: '23' },
+      additionalMarketplaces: { 'allegro-cz': { sellingMode: { price: { amount: '10', currency: 'CZK' } } } },
+      messageToSellerSettings: { mode: 'OPTIONAL' },
+    } as unknown as AllegroOffer);
+    expect(out).toHaveProperty('b2b');
+    expect(out).toHaveProperty('taxSettings');
+    expect(out).toHaveProperty('additionalMarketplaces');
+    expect(out).toHaveProperty('messageToSellerSettings');
+  });
+
+  it('strips ean, promotion, messageToSellerForm (not in SaleProductOfferRequestV1)', () => {
+    const out = stripReadonlyFields({
+      name: 'Test',
+      ean: '5901234123457',
+      promotion: { emphasized: true },
+      messageToSellerForm: { id: 'x' },
+    } as unknown as AllegroOffer);
+    expect(out).not.toHaveProperty('ean');
+    expect(out).not.toHaveProperty('promotion');
+    expect(out).not.toHaveProperty('messageToSellerForm');
+    expect(out).toHaveProperty('name', 'Test');
   });
 });
 
