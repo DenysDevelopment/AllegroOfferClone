@@ -145,7 +145,11 @@ export type ResponsibleProducerRef =
   | { type: 'ID'; id: string }
   | { type: 'NAME'; name: string };
 
-/** Reference put on productSet[].responsiblePerson in the offer body. */
+/**
+ * Reference put on productSet[].responsiblePerson in the offer body.
+ * No `type` discriminant — Allegro uses structural { id } vs { name } here,
+ * unlike ResponsibleProducerRef which requires an explicit type tag.
+ */
 export type ResponsiblePersonRef = { id: string } | { name: string };
 
 export interface SafetyInformationText {
@@ -154,8 +158,9 @@ export interface SafetyInformationText {
 }
 
 /**
- * Reference to an account-scoped offer dictionary entry — shipping rate,
- * return policy, implied warranty or warranty. Allegro POST accepts id or name.
+ * An account-scoped offer dictionary entry (shipping rate, return policy,
+ * implied warranty, warranty) as read from a source offer: `id` is always
+ * present, `name` is the optionally-resolved display name used for matching.
  */
 export interface NamedRef {
   id: string;
