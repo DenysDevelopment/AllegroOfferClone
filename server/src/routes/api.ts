@@ -4,6 +4,7 @@ import { z } from 'zod';
 import type { AllegroClient } from '../core/allegro.js';
 import { cloneOffer, buildCloneBody } from '../core/clone.js';
 import type { AccountRegistry } from '../core/registry.js';
+import type { AllegroOffer } from '../core/types.js';
 
 const descriptionItemSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('TEXT'), content: z.string() }),
@@ -46,8 +47,183 @@ const cloneSchema = z.object({
   descriptionOverride: descriptionSchema.optional(),
   imagesOverride: z.array(z.string().url()).optional(),
   targetProductId: z.string().min(1).optional(),
+  gpsr: z
+    .object({
+      responsibleProducer: z
+        .union([
+          z.object({ type: z.literal('ID'), id: z.string().min(1) }),
+          z.object({ type: z.literal('NAME'), name: z.string().min(1) }),
+          z.null(),
+        ])
+        .optional(),
+      responsiblePerson: z
+        .union([
+          z.object({ id: z.string().min(1) }),
+          z.object({ name: z.string().min(1) }),
+          z.null(),
+        ])
+        .optional(),
+      safetyInformation: z
+        .union([
+          z.object({ type: z.literal('TEXT'), description: z.string().max(5000) }),
+          z.null(),
+        ])
+        .optional(),
+    })
+    .optional(),
+  offerRefs: z
+    .object({
+      shippingRates: z
+        .union([z.object({ id: z.string().min(1) }), z.object({ name: z.string().min(1) }), z.null()])
+        .optional(),
+      returnPolicy: z
+        .union([z.object({ id: z.string().min(1) }), z.object({ name: z.string().min(1) }), z.null()])
+        .optional(),
+      impliedWarranty: z
+        .union([z.object({ id: z.string().min(1) }), z.object({ name: z.string().min(1) }), z.null()])
+        .optional(),
+      warranty: z
+        .union([z.object({ id: z.string().min(1) }), z.object({ name: z.string().min(1) }), z.null()])
+        .optional(),
+    })
+    .optional(),
   dryRun: z.boolean().default(false),
 });
+
+// 27 EU ISO-3166 codes accepted by Allegro for responsible persons.
+const EU_COUNTRY_CODES = [
+  'AT', 'BE', 'BG', 'HR', 'CY', 'CZ', 'DK', 'EE', 'FI', 'FR', 'GR', 'ES', 'IE',
+  'LT', 'LU', 'LV', 'MT', 'NL', 'DE', 'PL', 'PT', 'RO', 'SK', 'SI', 'SE', 'HU', 'IT',
+] as const;
+
+const gpsrContactSchema = z
+  .object({
+    email: z.string().max(50).optional(),
+    phoneNumber: z.string().max(30).optional(),
+    formUrl: z.string().max(80).optional(),
+  })
+  .refine((c) => !!c.email || !!c.formUrl, {
+    message: 'contact must have at least one of: email, formUrl',
+  });
+
+const createResponsiblePersonSchema = z.object({
+  name: z.string().min(1).max(50),
+  personalData: z.object({
+    name: z.string().min(1).max(200),
+    address: z.object({
+      countryCode: z.enum(EU_COUNTRY_CODES),
+      street: z.string().min(1).max(200),
+      postalCode: z.string().min(1).max(20),
+      city: z.string().min(1).max(100),
+    }),
+    contact: gpsrContactSchema,
+  }),
+});
+
+const createResponsibleProducerSchema = z.object({
+  name: z.string().min(1).max(50),
+  producerData: z.object({
+    tradeName: z.string().min(1).max(200),
+    address: z.object({
+      countryCode: z.string().regex(/^[A-Z]{2}$/),
+      street: z.string().min(1).max(200),
+      postalCode: z.string().min(1).max(20),
+      city: z.string().min(1).max(100),
+    }),
+    contact: gpsrContactSchema,
+  }),
+});
+
+/** Read GPSR off offer.productSet[0], resolving id refs to full records. */
+async function resolveOfferGpsr(client: AllegroClient, offer: AllegroOffer) {
+  const item = offer.productSet?.[0];
+  if (!item) return null;
+  const out: {
+    responsibleProducer?: unknown;
+    responsiblePerson?: unknown;
+    safetyInformation?: unknown;
+    marketedBeforeGPSRObligation?: boolean | null;
+  } = {};
+
+  const rp = item.responsibleProducer;
+  if (rp && 'type' in rp) {
+    if (rp.type === 'ID' && rp.id) {
+      try {
+        out.responsibleProducer = await client.getResponsibleProducer(rp.id);
+      } catch {
+        out.responsibleProducer = rp;
+      }
+    } else {
+      out.responsibleProducer = rp;
+    }
+  }
+
+  const rpe = item.responsiblePerson;
+  if (rpe) {
+    if ('id' in rpe && rpe.id) {
+      try {
+        out.responsiblePerson = await client.getResponsiblePerson(rpe.id);
+      } catch {
+        out.responsiblePerson = rpe;
+      }
+    } else {
+      out.responsiblePerson = rpe;
+    }
+  }
+
+  if (item.safetyInformation) out.safetyInformation = item.safetyInformation;
+  if (item.marketedBeforeGPSRObligation != null)
+    out.marketedBeforeGPSRObligation = item.marketedBeforeGPSRObligation;
+
+  return out;
+}
+
+/** Resolve account-scoped offer refs to { id, name } so the UI can match. */
+async function resolveOfferRefsPreview(client: AllegroClient, offer: AllegroOffer) {
+  const out: {
+    shippingRates?: { id: string; name?: string };
+    returnPolicy?: { id: string; name?: string };
+    impliedWarranty?: { id: string; name?: string };
+    warranty?: { id: string; name?: string };
+  } = {};
+
+  const srId = (offer.delivery?.shippingRates as { id?: string } | undefined)?.id;
+  if (srId) {
+    try {
+      out.shippingRates = { id: srId, name: (await client.getShippingRate(srId)).name };
+    } catch {
+      out.shippingRates = { id: srId };
+    }
+  }
+
+  const ass = offer.afterSalesServices;
+  if (ass?.returnPolicy?.id) {
+    const id = ass.returnPolicy.id;
+    try {
+      out.returnPolicy = { id, name: (await client.getReturnPolicy(id)).name };
+    } catch {
+      out.returnPolicy = { id };
+    }
+  }
+  if (ass?.impliedWarranty?.id) {
+    const id = ass.impliedWarranty.id;
+    try {
+      out.impliedWarranty = { id, name: (await client.getImpliedWarranty(id)).name };
+    } catch {
+      out.impliedWarranty = { id };
+    }
+  }
+  if (ass?.warranty?.id) {
+    const id = ass.warranty.id;
+    try {
+      out.warranty = { id, name: (await client.getWarranty(id)).name };
+    } catch {
+      out.warranty = { id };
+    }
+  }
+
+  return Object.keys(out).length > 0 ? out : null;
+}
 
 declare module 'express-serve-static-core' {
   interface Request {
@@ -115,6 +291,8 @@ export function apiRouter(registry: AccountRegistry): Router {
       const categoryParameters = categoryId
         ? await client.getCategoryParameters(categoryId)
         : null;
+      const gpsr = await resolveOfferGpsr(client, offer);
+      const offerRefs = await resolveOfferRefsPreview(client, offer);
       res.json({
         id: offer.id,
         name: offer.name,
@@ -126,6 +304,8 @@ export function apiRouter(registry: AccountRegistry): Router {
         categoryParameters: categoryParameters?.parameters ?? [],
         description: offer.description ?? null,
         images: offer.images ?? [],
+        gpsr,
+        offerRefs,
       });
     } catch (e) {
       next(e);
@@ -189,6 +369,56 @@ export function apiRouter(registry: AccountRegistry): Router {
   r.get('/helpers/implied-warranties', async (req, res, next) => {
     try {
       res.json(await req.allegro!.listImpliedWarranties());
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  r.get('/helpers/warranties', async (req, res, next) => {
+    try {
+      res.json(await req.allegro!.listWarranties());
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // --- GPSR: responsible persons & producers ---
+
+  r.get('/gpsr/responsible-persons', async (req, res, next) => {
+    try {
+      res.json({ responsiblePersons: await req.allegro!.listResponsiblePersons() });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  r.get('/gpsr/responsible-producers', async (req, res, next) => {
+    try {
+      res.json({ responsibleProducers: await req.allegro!.listResponsibleProducers() });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  r.post('/gpsr/responsible-persons', async (req, res, next) => {
+    const parsed = createResponsiblePersonSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'VALIDATION', details: parsed.error.format() });
+    }
+    try {
+      res.status(201).json(await req.allegro!.createResponsiblePerson(parsed.data));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  r.post('/gpsr/responsible-producers', async (req, res, next) => {
+    const parsed = createResponsibleProducerSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res.status(400).json({ error: 'VALIDATION', details: parsed.error.format() });
+    }
+    try {
+      res.status(201).json(await req.allegro!.createResponsibleProducer(parsed.data));
     } catch (e) {
       next(e);
     }
