@@ -450,7 +450,7 @@ function resolveGpsr(
 ): GpsrFields {
 	const out: GpsrFields = {};
 
-	if (sourceItem?.safetyInformation) {
+	if (sourceItem?.safetyInformation != null) {
 		out.safetyInformation = sourceItem.safetyInformation;
 	}
 	if (sourceItem?.marketedBeforeGPSRObligation != null) {
@@ -458,9 +458,14 @@ function resolveGpsr(
 	}
 
 	if (options.gpsr) {
+		// `value` sets the field, `null` explicitly clears it (drop from `out`),
+		// `undefined` leaves whatever was seeded above untouched. Handled
+		// symmetrically for all three fields.
 		const g = options.gpsr;
 		if (g.responsibleProducer) out.responsibleProducer = g.responsibleProducer;
+		else if (g.responsibleProducer === null) delete out.responsibleProducer;
 		if (g.responsiblePerson) out.responsiblePerson = g.responsiblePerson;
+		else if (g.responsiblePerson === null) delete out.responsiblePerson;
 		if (g.safetyInformation) out.safetyInformation = g.safetyInformation;
 		else if (g.safetyInformation === null) delete out.safetyInformation;
 		return out;
