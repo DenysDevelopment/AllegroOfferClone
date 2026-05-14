@@ -567,8 +567,8 @@ function rewriteTitle(
 /**
  * Whitelist of top-level fields that Allegro accepts in POST /sale/product-offers.
  * Anything outside this list is server-managed metadata (id, createdAt, statistics,
- * additionalMarketplaces, base, endedBy, warnings, validation, marketplace, …) and
- * must be removed before submission, otherwise Allegro returns 422 UnknownJSONProperty.
+ * base, endedBy, warnings, validation, marketplace, …) and must be removed before
+ * submission, otherwise Allegro returns 422 UnknownJSONProperty.
  */
 const POST_OFFER_TOP_LEVEL_WHITELIST = new Set([
 	'name',
