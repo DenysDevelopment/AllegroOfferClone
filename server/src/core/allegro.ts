@@ -303,6 +303,48 @@ export class AllegroClient {
     return res.data.impliedWarranties ?? [];
   }
 
+  async listWarranties(): Promise<Array<{ id: string; name: string }>> {
+    const res = await this.withRetry<{
+      warranties: Array<{ id: string; name: string }>;
+    }>({
+      method: 'GET',
+      url: '/after-sales-service-conditions/warranties',
+    });
+    return res.data.warranties ?? [];
+  }
+
+  async getShippingRate(id: string): Promise<{ id: string; name?: string }> {
+    const res = await this.withRetry<{ id: string; name?: string }>({
+      method: 'GET',
+      url: `/sale/shipping-rates/${encodeURIComponent(id)}`,
+    });
+    return res.data;
+  }
+
+  async getReturnPolicy(id: string): Promise<{ id: string; name?: string }> {
+    const res = await this.withRetry<{ id: string; name?: string }>({
+      method: 'GET',
+      url: `/after-sales-service-conditions/return-policies/${encodeURIComponent(id)}`,
+    });
+    return res.data;
+  }
+
+  async getImpliedWarranty(id: string): Promise<{ id: string; name?: string }> {
+    const res = await this.withRetry<{ id: string; name?: string }>({
+      method: 'GET',
+      url: `/after-sales-service-conditions/implied-warranties/${encodeURIComponent(id)}`,
+    });
+    return res.data;
+  }
+
+  async getWarranty(id: string): Promise<{ id: string; name?: string }> {
+    const res = await this.withRetry<{ id: string; name?: string }>({
+      method: 'GET',
+      url: `/after-sales-service-conditions/warranties/${encodeURIComponent(id)}`,
+    });
+    return res.data;
+  }
+
   // ---- catalog search + product proposals ----
 
   async matchCategories(name: string): Promise<Array<{
