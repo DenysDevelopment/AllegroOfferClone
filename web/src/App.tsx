@@ -3,6 +3,7 @@ import {
 	api,
 	setActiveAccountIdGetter,
 	type AccountSummary,
+	type ClonePayload,
 	type CloneResult,
 	type CloneStep,
 	type DescriptionSections,
@@ -16,7 +17,9 @@ import {
 	type SelectedTargetProduct,
 } from './components/FindProductPanel';
 import { ImagesEditor } from './components/ImagesEditor';
+import { GpsrPanel } from './components/GpsrPanel';
 import { NewProductPanel } from './components/NewProductPanel';
+import { OfferRefsPanel } from './components/OfferRefsPanel';
 import {
 	OverridesEditor,
 	type ParamOverride,
@@ -95,6 +98,16 @@ export default function App() {
 	const [bannerNote, setBannerNote] = useState<string | null>(null);
 	const [targetProduct, setTargetProduct] = useState<SelectedTargetProduct | null>(
 		null,
+	);
+	const [gpsr, setGpsr] = useState<ClonePayload['gpsr']>(undefined);
+	const [offerRefs, setOfferRefs] = useState<ClonePayload['offerRefs']>(undefined);
+	const handleGpsrChange = useCallback(
+		(g: NonNullable<ClonePayload['gpsr']>) => setGpsr(g),
+		[],
+	);
+	const handleOfferRefsChange = useCallback(
+		(r: NonNullable<ClonePayload['offerRefs']>) => setOfferRefs(r),
+		[],
 	);
 
 	const refreshAccounts = useCallback(async () => {
@@ -307,6 +320,8 @@ export default function App() {
 		descriptionOverride: descriptionUserEdited ? cleanedDescription : undefined,
 		imagesOverride: imagesUserEdited ? cleanedImages : undefined,
 		targetProductId: targetProduct?.id,
+		gpsr,
+		offerRefs,
 		accountId: publishAccountId || undefined,
 		sourceAccountId: sourceAccountId || undefined,
 		dryRun,
@@ -490,6 +505,24 @@ export default function App() {
 							publicationStatus={publicationStatus}
 							onPub={setPublicationStatus}
 						/>
+
+						{preview && (
+							<GpsrPanel
+								sourceGpsr={preview.gpsr}
+								publishAccountId={publishAccountId}
+								crossAccount={sourceAccountId !== publishAccountId}
+								onChange={handleGpsrChange}
+							/>
+						)}
+
+						{preview && (
+							<OfferRefsPanel
+								sourceRefs={preview.offerRefs}
+								publishAccountId={publishAccountId}
+								crossAccount={sourceAccountId !== publishAccountId}
+								onChange={handleOfferRefsChange}
+							/>
+						)}
 
 						<div className='sticky bottom-4 space-y-2'>
 							<BindingStatus
