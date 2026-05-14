@@ -126,6 +126,10 @@ export function GpsrPanel({
 	const lastSourceRef = useRef<OfferGpsr | null | undefined>(undefined);
 	const producerDismissedRef = useRef(false);
 	const personDismissedRef = useRef(false);
+	// Always call the latest onChange without it being an effect dependency —
+	// the emit effect must not re-fire just because the parent re-rendered.
+	const onChangeRef = useRef(onChange);
+	onChangeRef.current = onChange;
 
 	// Load the target account's dictionaries whenever the publish account changes.
 	useEffect(() => {
@@ -219,16 +223,16 @@ export function GpsrPanel({
 	}, [loading, crossAccount, producers, persons, sourceGpsr]);
 
 	// Emit the confirmed GPSR state upward whenever a selection changes.
-	// NOTE: App.tsx must pass a useCallback-stable onChange or this loops.
+	// Uses onChangeRef so an unstable parent callback can't cause a render loop.
 	useEffect(() => {
-		onChange({
+		onChangeRef.current({
 			responsibleProducer: producerId ? { type: 'ID', id: producerId } : null,
 			responsiblePerson: personId ? { id: personId } : null,
 			safetyInformation: safetyText.trim()
 				? { type: 'TEXT', description: safetyText.trim() }
 				: null,
 		});
-	}, [producerId, personId, safetyText, onChange]);
+	}, [producerId, personId, safetyText]);
 
 	const submitProducer = async () => {
 		if (!producerForm) return;

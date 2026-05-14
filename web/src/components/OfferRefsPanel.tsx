@@ -47,6 +47,10 @@ export function OfferRefsPanel({
 
 	// Guards stale list responses when publishAccountId changes mid-flight.
 	const loadSeqRef = useRef(0);
+	// Always call the latest onChange without it being an effect dependency —
+	// the emit effect must not re-fire just because the parent re-rendered.
+	const onChangeRef = useRef(onChange);
+	onChangeRef.current = onChange;
 
 	// Load the target account's dictionaries whenever the publish account changes.
 	useEffect(() => {
@@ -87,15 +91,16 @@ export function OfferRefsPanel({
 		setWarrantyId(matchByName(sourceRefs?.warranty?.name, warranties));
 	}, [loading, shippingRates, returnPolicies, impliedWarranties, warranties, sourceRefs]);
 
-	// Emit the confirmed refs upward. NOTE: App.tsx must pass useCallback-stable onChange.
+	// Emit the confirmed refs upward whenever a selection changes.
+	// Uses onChangeRef so an unstable parent callback can't cause a render loop.
 	useEffect(() => {
-		onChange({
+		onChangeRef.current({
 			shippingRates: shippingRatesId ? { id: shippingRatesId } : null,
 			returnPolicy: returnPolicyId ? { id: returnPolicyId } : null,
 			impliedWarranty: impliedWarrantyId ? { id: impliedWarrantyId } : null,
 			warranty: warrantyId ? { id: warrantyId } : null,
 		});
-	}, [shippingRatesId, returnPolicyId, impliedWarrantyId, warrantyId, onChange]);
+	}, [shippingRatesId, returnPolicyId, impliedWarrantyId, warrantyId]);
 
 	return (
 		<section className='panel'>
