@@ -156,6 +156,10 @@ async function resolveOfferGpsr(client: AllegroClient, offer: AllegroOffer) {
     } else {
       out.responsibleProducer = rp;
     }
+  } else if (rp) {
+    // Unknown shape (no `type` discriminant) — pass it through as-is rather
+    // than silently dropping it.
+    out.responsibleProducer = rp;
   }
 
   const rpe = item.responsiblePerson;
@@ -187,7 +191,7 @@ async function resolveOfferRefsPreview(client: AllegroClient, offer: AllegroOffe
     warranty?: { id: string; name?: string };
   } = {};
 
-  const srId = (offer.delivery?.shippingRates as { id?: string } | undefined)?.id;
+  const srId = offer.delivery?.shippingRates?.id;
   if (srId) {
     try {
       out.shippingRates = { id: srId, name: (await client.getShippingRate(srId)).name };
@@ -291,8 +295,11 @@ export function apiRouter(registry: AccountRegistry): Router {
       const categoryParameters = categoryId
         ? await client.getCategoryParameters(categoryId)
         : null;
-      const gpsr = await resolveOfferGpsr(client, offer);
-      const offerRefs = await resolveOfferRefsPreview(client, offer);
+      // Independent — resolve GPSR and offer refs in parallel.
+      const [gpsr, offerRefs] = await Promise.all([
+        resolveOfferGpsr(client, offer),
+        resolveOfferRefsPreview(client, offer),
+      ]);
       res.json({
         id: offer.id,
         name: offer.name,
