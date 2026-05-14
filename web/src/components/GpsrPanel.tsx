@@ -116,8 +116,16 @@ export function GpsrPanel({
 
 	const [producerForm, setProducerForm] = useState<CreateFormState | null>(null);
 	const [personForm, setPersonForm] = useState<CreateFormState | null>(null);
-	const [createError, setCreateError] = useState<string | null>(null);
-	const [creating, setCreating] = useState(false);
+	// Per-form create state — both forms can be open at once, so they must not
+	// share a single spinner / error slot.
+	const [producerCreating, setProducerCreating] = useState(false);
+	const [personCreating, setPersonCreating] = useState(false);
+	const [producerCreateError, setProducerCreateError] = useState<string | null>(
+		null,
+	);
+	const [personCreateError, setPersonCreateError] = useState<string | null>(
+		null,
+	);
 
 	// Guards stale list responses when publishAccountId changes mid-flight.
 	const loadSeqRef = useRef(0);
@@ -224,7 +232,11 @@ export function GpsrPanel({
 
 	// Emit the confirmed GPSR state upward whenever a selection changes.
 	// Uses onChangeRef so an unstable parent callback can't cause a render loop.
+	// Skipped while loading — otherwise an early `{...: null}` emit during the
+	// list-load window would let a quick clone clear GPSR; staying silent leaves
+	// App's gpsr `undefined`, so the server falls back to source carry-over.
 	useEffect(() => {
+		if (loading) return;
 		onChangeRef.current({
 			responsibleProducer: producerId ? { type: 'ID', id: producerId } : null,
 			responsiblePerson: personId ? { id: personId } : null,
@@ -232,12 +244,12 @@ export function GpsrPanel({
 				? { type: 'TEXT', description: safetyText.trim() }
 				: null,
 		});
-	}, [producerId, personId, safetyText]);
+	}, [producerId, personId, safetyText, loading]);
 
 	const submitProducer = async () => {
 		if (!producerForm) return;
-		setCreating(true);
-		setCreateError(null);
+		setProducerCreating(true);
+		setProducerCreateError(null);
 		try {
 			const created = await api.gpsr.createProducer({
 				name: producerForm.name.trim(),
@@ -261,19 +273,19 @@ export function GpsrPanel({
 			setProducerId(created.id);
 			setProducerForm(null);
 		} catch (e) {
-			setCreateError(
+			setProducerCreateError(
 				(e as { data?: { message?: string } }).data?.message ??
 					(e as Error).message,
 			);
 		} finally {
-			setCreating(false);
+			setProducerCreating(false);
 		}
 	};
 
 	const submitPerson = async () => {
 		if (!personForm) return;
-		setCreating(true);
-		setCreateError(null);
+		setPersonCreating(true);
+		setPersonCreateError(null);
 		try {
 			const created = await api.gpsr.createPerson({
 				name: personForm.name.trim(),
@@ -297,12 +309,12 @@ export function GpsrPanel({
 			setPersonId(created.id);
 			setPersonForm(null);
 		} catch (e) {
-			setCreateError(
+			setPersonCreateError(
 				(e as { data?: { message?: string } }).data?.message ??
 					(e as Error).message,
 			);
 		} finally {
-			setCreating(false);
+			setPersonCreating(false);
 		}
 	};
 
@@ -357,8 +369,8 @@ export function GpsrPanel({
 							setProducerForm(null);
 							producerDismissedRef.current = true;
 						}}
-						busy={creating}
-						error={createError}
+						busy={producerCreating}
+						error={producerCreateError}
 					/>
 				)}
 
@@ -393,8 +405,8 @@ export function GpsrPanel({
 							setPersonForm(null);
 							personDismissedRef.current = true;
 						}}
-						busy={creating}
-						error={createError}
+						busy={personCreating}
+						error={personCreateError}
 					/>
 				)}
 

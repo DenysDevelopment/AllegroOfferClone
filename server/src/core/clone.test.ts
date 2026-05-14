@@ -706,6 +706,8 @@ describe('buildCloneBody — offer refs', () => {
     expect(b.delivery.shippingRates).toEqual({ id: 'SR-TGT' });
     expect(b.afterSalesServices.returnPolicy).toEqual({ name: 'Zwroty 14 dni' });
     expect(b.afterSalesServices.impliedWarranty).toBeUndefined();
+    // warranty has no override and this is a cross-account clone → dropped.
+    expect(b.afterSalesServices.warranty).toBeUndefined();
   });
 
   it('adds delivery.shippingRates from options when the source has no delivery', async () => {

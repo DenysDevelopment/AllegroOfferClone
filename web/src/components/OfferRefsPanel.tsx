@@ -93,14 +93,22 @@ export function OfferRefsPanel({
 
 	// Emit the confirmed refs upward whenever a selection changes.
 	// Uses onChangeRef so an unstable parent callback can't cause a render loop.
+	// Skipped while loading — staying silent leaves App's offerRefs `undefined`,
+	// so a quick clone falls back to server-side carry-over instead of clearing.
+	// Unselected fields emit `undefined` (not `null`) so the server treats them
+	// as "operator didn't override" → same-account carry / cross-account warn,
+	// rather than an explicit clear.
 	useEffect(() => {
+		if (loading) return;
 		onChangeRef.current({
-			shippingRates: shippingRatesId ? { id: shippingRatesId } : null,
-			returnPolicy: returnPolicyId ? { id: returnPolicyId } : null,
-			impliedWarranty: impliedWarrantyId ? { id: impliedWarrantyId } : null,
-			warranty: warrantyId ? { id: warrantyId } : null,
+			shippingRates: shippingRatesId ? { id: shippingRatesId } : undefined,
+			returnPolicy: returnPolicyId ? { id: returnPolicyId } : undefined,
+			impliedWarranty: impliedWarrantyId
+				? { id: impliedWarrantyId }
+				: undefined,
+			warranty: warrantyId ? { id: warrantyId } : undefined,
 		});
-	}, [shippingRatesId, returnPolicyId, impliedWarrantyId, warrantyId]);
+	}, [shippingRatesId, returnPolicyId, impliedWarrantyId, warrantyId, loading]);
 
 	return (
 		<section className='panel'>
