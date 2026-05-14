@@ -19,7 +19,10 @@ export interface AllegroProduct {
 export interface AllegroProductSetItem {
   product: AllegroProduct;
   quantity?: { value: number };
-  marketplaces?: unknown;
+  responsiblePerson?: ResponsiblePersonRef | null;
+  responsibleProducer?: ResponsibleProducerRef | null;
+  safetyInformation?: SafetyInformationText | null;
+  marketedBeforeGPSRObligation?: boolean | null;
 }
 
 export interface AllegroOffer {
@@ -102,4 +105,59 @@ export interface CategoryParameter {
 
 export interface CategoryParametersResponse {
   parameters: CategoryParameter[];
+}
+
+export interface GpsrAddress {
+  countryCode: string;
+  street: string;
+  postalCode: string;
+  city: string;
+}
+
+export interface GpsrContact {
+  email?: string;
+  phoneNumber?: string;
+  formUrl?: string;
+}
+
+export interface ResponsiblePerson {
+  id: string;
+  name: string;
+  personalData: {
+    name: string;
+    address: GpsrAddress;
+    contact: GpsrContact;
+  };
+}
+
+export interface ResponsibleProducer {
+  id: string;
+  name: string;
+  producerData: {
+    tradeName: string;
+    address: GpsrAddress;
+    contact: GpsrContact;
+  };
+}
+
+/** Reference put on productSet[].responsibleProducer in the offer body. */
+export type ResponsibleProducerRef =
+  | { type: 'ID'; id: string }
+  | { type: 'NAME'; name: string };
+
+/** Reference put on productSet[].responsiblePerson in the offer body. */
+export type ResponsiblePersonRef = { id: string } | { name: string };
+
+export interface SafetyInformationText {
+  type: 'TEXT';
+  description: string;
+}
+
+/**
+ * Reference to an account-scoped offer dictionary entry — shipping rate,
+ * return policy, implied warranty or warranty. Allegro POST accepts id or name.
+ */
+export interface NamedRef {
+  id: string;
+  name?: string;
 }
