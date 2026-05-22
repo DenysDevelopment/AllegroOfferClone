@@ -393,7 +393,7 @@ export function NewProductPanel({
 		// We re-upload each image URL through /api/images/upload-url to get a fresh,
 		// attachable upload URL.
 		const sections: DescriptionSections['sections'] = [];
-		const flatDescription = flattenVars(description, varMap).sections;
+		const { sections: flatDescription } = flattenVars(description, varMap);
 		for (const s of flatDescription.sections) {
 			const items: typeof s.items = [];
 			for (const it of s.items) {

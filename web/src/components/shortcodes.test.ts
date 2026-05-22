@@ -221,4 +221,20 @@ describe('buildCategoryVarMap', () => {
     );
     expect(map.get('Porty')).toBe('USB-C, HDMI');
   });
+
+  it('resolves and joins multiple dictionary value ids', () => {
+    const map = buildCategoryVarMap(
+      [
+        catParam('p7', 'Złącza', {
+          type: 'dictionary',
+          dictionary: [
+            { id: 'd1', value: 'USB-C' },
+            { id: 'd2', value: 'HDMI' },
+          ],
+        }),
+      ],
+      { p7: { id: 'p7', valuesIds: ['d1', 'd2'] } },
+    );
+    expect(map.get('Złącza')).toBe('USB-C, HDMI');
+  });
 });
