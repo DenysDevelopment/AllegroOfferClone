@@ -183,7 +183,7 @@ export default function App() {
 				title: nameOverride,
 				price: priceOverride,
 			}),
-		[preview, cleanedOverrides, nameOverride, priceOverride],
+		[preview?.parameters, cleanedOverrides, nameOverride, priceOverride],
 	);
 
 	// Live-computed title with parameter overrides applied (mirrors server logic).
@@ -348,10 +348,13 @@ export default function App() {
 	const handleApplyTemplate = (id: string, applyMode: 'replace' | 'append') => {
 		const tpl = templates.find(t => t.id === id);
 		if (!tpl) return;
+		// Copy the template's sections so the editor never mutates the
+		// cached template object held in `templates` state.
+		const tplSections = tpl.sections.map(s => ({ items: [...s.items] }));
 		const nextSections =
 			applyMode === 'replace'
-				? tpl.sections
-				: [...description.sections, ...tpl.sections];
+				? tplSections
+				: [...description.sections, ...tplSections];
 		setDescription({ sections: nextSections });
 		setDescriptionUserEdited(true);
 		const { unresolved } = flattenVars({ sections: tpl.sections }, varMap);
