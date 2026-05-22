@@ -1,12 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import type { OfferParameter } from '../api';
+import type { CategoryParameter, OfferParameter } from '../api';
 import {
+  buildCategoryVarMap,
   buildVarMap,
   chipsHtmlToTokens,
   escapeHtml,
   flattenVars,
   tokensToChipsHtml,
 } from './shortcodes';
+
+const catParam = (
+  id: string,
+  name: string,
+  p: Partial<CategoryParameter> = {},
+): CategoryParameter => ({ id, name, type: 'string', ...p });
 
 const param = (name: string, p: Partial<OfferParameter> = {}): OfferParameter => ({
   id: name,
@@ -158,5 +165,60 @@ describe('flattenVars', () => {
       type: 'TEXT',
       content: '&lt;b&gt;',
     });
+  });
+});
+
+describe('buildCategoryVarMap', () => {
+  it('resolves a free-text parameter value', () => {
+    const map = buildCategoryVarMap(
+      [catParam('p1', 'Model')],
+      { p1: { id: 'p1', values: ['Swift 3'] } },
+    );
+    expect(map.get('Model')).toBe('Swift 3');
+  });
+
+  it('resolves a dictionary value id to its text', () => {
+    const map = buildCategoryVarMap(
+      [
+        catParam('p2', 'Marka', {
+          type: 'dictionary',
+          dictionary: [
+            { id: 'd1', value: 'Acer' },
+            { id: 'd2', value: 'Asus' },
+          ],
+        }),
+      ],
+      { p2: { id: 'p2', valuesIds: ['d2'] } },
+    );
+    expect(map.get('Marka')).toBe('Asus');
+  });
+
+  it('appends the parameter unit', () => {
+    const map = buildCategoryVarMap(
+      [catParam('p3', 'Pojemność dysku', { unit: 'GB' })],
+      { p3: { id: 'p3', values: ['512'] } },
+    );
+    expect(map.get('Pojemność dysku')).toBe('512 GB');
+  });
+
+  it('skips parameters with no entered value', () => {
+    const map = buildCategoryVarMap([catParam('p4', 'Stan')], {});
+    expect(map.has('Stan')).toBe(false);
+  });
+
+  it('skips a value that resolves to empty', () => {
+    const map = buildCategoryVarMap(
+      [catParam('p5', 'Model')],
+      { p5: { id: 'p5', values: [''] } },
+    );
+    expect(map.has('Model')).toBe(false);
+  });
+
+  it('joins multiple values with a comma', () => {
+    const map = buildCategoryVarMap(
+      [catParam('p6', 'Porty')],
+      { p6: { id: 'p6', values: ['USB-C', 'HDMI'] } },
+    );
+    expect(map.get('Porty')).toBe('USB-C, HDMI');
   });
 });

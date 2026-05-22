@@ -1,4 +1,4 @@
-import type { DescriptionSections, OfferParameter } from '../api';
+import type { CategoryParameter, DescriptionSections, OfferParameter, ProductParameterValue } from '../api';
 
 /** Matches a `{{ key }}` token. The key may contain spaces but not braces. */
 const TOKEN_RE = /\{\{\s*([^{}]+?)\s*\}\}/g;
@@ -50,6 +50,38 @@ export function buildVarMap(input: VarMapInput): Map<string, string> {
   }
   if (input.title) map.set('@title', input.title);
   if (input.price) map.set('@price', input.price);
+  return map;
+}
+
+/**
+ * Builds a var map from the new-product category-parameter form: maps each
+ * parameter's name to the operator's entered value. Dictionary value-ids are
+ * resolved to their text via the parameter's own `dictionary`; the parameter
+ * `unit` is appended when present.
+ */
+export function buildCategoryVarMap(
+  params: CategoryParameter[],
+  values: Record<string, ProductParameterValue>,
+): Map<string, string> {
+  const map = new Map<string, string>();
+  for (const p of params) {
+    const name = (p.name ?? '').trim();
+    if (!name) continue;
+    const v = values[p.id];
+    if (!v) continue;
+    let resolved = '';
+    if (v.valuesIds?.length) {
+      resolved = v.valuesIds
+        .map((id) => p.dictionary?.find((d) => d.id === id)?.value ?? '')
+        .filter(Boolean)
+        .join(', ');
+    } else if (v.values?.length) {
+      resolved = v.values.filter(Boolean).join(', ');
+    }
+    resolved = resolved.trim();
+    if (!resolved) continue;
+    map.set(name, p.unit ? `${resolved} ${p.unit}` : resolved);
+  }
   return map;
 }
 
