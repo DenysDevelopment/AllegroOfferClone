@@ -115,41 +115,43 @@ export function DescriptionEditor({
 						</span>
 					)}
 				</span>
-				{onSaveTemplate &&
-					onApplyTemplate &&
-					onRenameTemplate &&
-					onDeleteTemplate && (
-						<TemplateMenu
-							templates={templates ?? []}
-							sectionsCount={sections.length}
-							onSave={onSaveTemplate}
-							onApply={onApplyTemplate}
-							onRename={onRenameTemplate}
-							onDelete={onDeleteTemplate}
-						/>
-					)}
-				<div className='flex items-center gap-1'>
-					{dirty && (
+				<div className='flex items-center gap-2'>
+					{onSaveTemplate &&
+						onApplyTemplate &&
+						onRenameTemplate &&
+						onDeleteTemplate && (
+							<TemplateMenu
+								templates={templates ?? []}
+								sectionsCount={sections.length}
+								onSave={onSaveTemplate}
+								onApply={onApplyTemplate}
+								onRename={onRenameTemplate}
+								onDelete={onDeleteTemplate}
+							/>
+						)}
+					<div className='flex items-center gap-1'>
+						{dirty && (
+							<button
+								type='button'
+								onClick={onReset}
+								className='btn btn-ghost h-7 px-2 text-[12px]'
+								title='Вернуть исходные'>
+								сбросить
+							</button>
+						)}
 						<button
 							type='button'
-							onClick={onReset}
-							className='btn btn-ghost h-7 px-2 text-[12px]'
-							title='Вернуть исходные'>
-							сбросить
+							onClick={() => addSection('TEXT')}
+							className='btn btn-ghost h-7 px-2 text-[12px]'>
+							+ текст
 						</button>
-					)}
-					<button
-						type='button'
-						onClick={() => addSection('TEXT')}
-						className='btn btn-ghost h-7 px-2 text-[12px]'>
-						+ текст
-					</button>
-					<button
-						type='button'
-						onClick={() => addSection('IMAGE')}
-						className='btn btn-ghost h-7 px-2 text-[12px]'>
-						+ картинка
-					</button>
+						<button
+							type='button'
+							onClick={() => addSection('IMAGE')}
+							className='btn btn-ghost h-7 px-2 text-[12px]'>
+							+ картинка
+						</button>
+					</div>
 				</div>
 			</header>
 
@@ -510,6 +512,17 @@ function TemplateMenu({
 	onDelete: (id: string) => void;
 }) {
 	const [open, setOpen] = useState(false);
+	const menuRef = useRef<HTMLDivElement | null>(null);
+
+	// Close the dropdown when clicking outside it.
+	useEffect(() => {
+		if (!open) return;
+		const onDocMouseDown = (e: MouseEvent) => {
+			if (!menuRef.current?.contains(e.target as Node)) setOpen(false);
+		};
+		document.addEventListener('mousedown', onDocMouseDown);
+		return () => document.removeEventListener('mousedown', onDocMouseDown);
+	}, [open]);
 
 	const handleSave = () => {
 		const name = window.prompt('Название шаблона')?.trim();
@@ -518,6 +531,9 @@ function TemplateMenu({
 	};
 
 	const handleApply = (id: string) => {
+		// Non-standard confirm mapping (intentional): OK = replace the whole
+		// description, Cancel = append the template's sections. The dialog
+		// text spells this out for the operator.
 		const replace =
 			sectionsCount === 0 ||
 			window.confirm(
@@ -531,14 +547,16 @@ function TemplateMenu({
 	const handleRename = (t: DescriptionTemplate) => {
 		const name = window.prompt('Новое название', t.name)?.trim();
 		if (name && name !== t.name) onRename(t.id, name);
+		setOpen(false);
 	};
 
 	const handleDelete = (t: DescriptionTemplate) => {
 		if (window.confirm(`Удалить шаблон «${t.name}»?`)) onDelete(t.id);
+		setOpen(false);
 	};
 
 	return (
-		<div className='relative'>
+		<div className='relative' ref={menuRef}>
 			<button
 				type='button'
 				onClick={() => setOpen(o => !o)}
