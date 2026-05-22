@@ -29,7 +29,7 @@ async function main() {
   }
 
   app.use('/api/auth', authRouter(registry));
-  app.use('/api', apiRouter(registry));
+  app.use('/api', apiRouter(registry, multi.dataDir));
 
   app.get('/api/health', (_req, res) => {
     res.json({

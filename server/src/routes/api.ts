@@ -1,9 +1,11 @@
 import { Router, type Request, type RequestHandler } from 'express';
 import express from 'express';
+import path from 'node:path';
 import { z } from 'zod';
 import type { AllegroClient } from '../core/allegro.js';
 import { cloneOffer, buildCloneBody } from '../core/clone.js';
 import type { AccountRegistry } from '../core/registry.js';
+import { TemplateStore } from '../core/templates.js';
 
 const descriptionItemSchema = z.discriminatedUnion('type', [
   z.object({ type: z.literal('TEXT'), content: z.string() }),
@@ -15,6 +17,20 @@ const descriptionSchema = z.object({
     .array(z.object({ items: z.array(descriptionItemSchema).min(1) }))
     .min(1),
 });
+
+const templateCreateSchema = z.object({
+  name: z.string().trim().min(1).max(100),
+  sections: descriptionSchema.shape.sections,
+});
+
+const templateUpdateSchema = z
+  .object({
+    name: z.string().trim().min(1).max(100).optional(),
+    sections: descriptionSchema.shape.sections.optional(),
+  })
+  .refine((p) => p.name !== undefined || p.sections !== undefined, {
+    message: 'at least one of name, sections is required',
+  });
 
 const productParameterSchema = z
   .object({
@@ -60,8 +76,12 @@ declare module 'express-serve-static-core' {
   }
 }
 
-export function apiRouter(registry: AccountRegistry): Router {
+export function apiRouter(registry: AccountRegistry, dataDir: string): Router {
   const r = Router();
+
+  const templateStore = new TemplateStore(
+    path.join(dataDir, 'description-templates.json'),
+  );
 
   const pickAccount: RequestHandler = (req, _res, next) => {
     // Source (browse) = X-Account-Id header > ?account= > default.
@@ -316,6 +336,64 @@ export function apiRouter(registry: AccountRegistry): Router {
           ct as 'image/jpeg' | 'image/png' | 'image/webp',
         ),
       );
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // --- description templates (global, account-independent) ---
+
+  r.get('/description-templates', async (_req, res, next) => {
+    try {
+      res.json({ templates: await templateStore.list() });
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  r.post('/description-templates', async (req, res, next) => {
+    const parsed = templateCreateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res
+        .status(400)
+        .json({ error: 'VALIDATION', details: parsed.error.format() });
+    }
+    try {
+      const created = await templateStore.create(
+        parsed.data.name,
+        parsed.data.sections,
+      );
+      res.status(201).json(created);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  r.put('/description-templates/:id', async (req, res, next) => {
+    const parsed = templateUpdateSchema.safeParse(req.body);
+    if (!parsed.success) {
+      return res
+        .status(400)
+        .json({ error: 'VALIDATION', details: parsed.error.format() });
+    }
+    try {
+      const updated = await templateStore.update(req.params.id, parsed.data);
+      if (!updated) {
+        return res.status(404).json({ error: 'NOT_FOUND' });
+      }
+      res.json(updated);
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  r.delete('/description-templates/:id', async (req, res, next) => {
+    try {
+      const existed = await templateStore.remove(req.params.id);
+      if (!existed) {
+        return res.status(404).json({ error: 'NOT_FOUND' });
+      }
+      res.status(204).end();
     } catch (e) {
       next(e);
     }
