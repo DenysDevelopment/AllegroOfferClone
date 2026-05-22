@@ -6,11 +6,13 @@ import {
 	type CloneResult,
 	type CloneStep,
 	type DescriptionSections,
+	type DescriptionTemplate,
 	type OfferPreview,
 } from './api';
 import { AccountSwitcher } from './components/AccountSwitcher';
 import { ConnectGate } from './components/ConnectGate';
 import { DescriptionEditor } from './components/DescriptionEditor';
+import { buildVarMap, flattenVars } from './components/shortcodes';
 import {
 	FindProductPanel,
 	type SelectedTargetProduct,
@@ -87,6 +89,7 @@ export default function App() {
 		sections: [],
 	});
 	const [descriptionUserEdited, setDescriptionUserEdited] = useState(false);
+	const [templates, setTemplates] = useState<DescriptionTemplate[]>([]);
 
 	const [steps, setSteps] = useState<CloneStep[]>([]);
 	const [working, setWorking] = useState<'idle' | 'clone'>('idle');
@@ -170,6 +173,19 @@ export default function App() {
 		return map;
 	}, [overrides]);
 
+	// key -> resolved value for description variables. Overrides win over
+	// source values; @title / @price mirror the offer-level overrides.
+	const varMap = useMemo(
+		() =>
+			buildVarMap({
+				parameters: preview?.parameters ?? [],
+				overrides: cleanedOverrides,
+				title: nameOverride,
+				price: priceOverride,
+			}),
+		[preview, cleanedOverrides, nameOverride, priceOverride],
+	);
+
 	// Live-computed title with parameter overrides applied (mirrors server logic).
 	const autoName = useMemo(() => {
 		if (!preview?.name) return '';
@@ -214,6 +230,16 @@ export default function App() {
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [preview?.id]);
+
+	// Description templates are global; load the list once on mount.
+	useEffect(() => {
+		api.descriptionTemplates
+			.list()
+			.then(r => setTemplates(r.templates))
+			.catch(() => {
+				/* non-fatal: templates panel just stays empty */
+			});
+	}, []);
 
 	// Auto-fill name (live-updated as overrides change) unless user has typed.
 	// Skipped when a catalog target product is bound — name comes from the catalog.
@@ -269,7 +295,8 @@ export default function App() {
 		[imageUrls],
 	);
 
-	// Strip empty TEXT items, then strip sections that became empty.
+	// Strip empty TEXT items, drop emptied sections, then flatten {{variables}}
+	// to plain text so Allegro receives no tokens.
 	const cleanedDescription = useMemo<DescriptionSections | undefined>(() => {
 		const cleaned = description.sections
 			.map(s => ({
@@ -279,8 +306,8 @@ export default function App() {
 			}))
 			.filter(s => s.items.length > 0);
 		if (cleaned.length === 0) return undefined;
-		return { sections: cleaned };
-	}, [description]);
+		return flattenVars({ sections: cleaned }, varMap).sections;
+	}, [description, varMap]);
 
 	const resetImages = () => {
 		if (!preview) return;
@@ -295,6 +322,64 @@ export default function App() {
 		if (!preview) return;
 		setDescription(preview.description ?? { sections: [] });
 		setDescriptionUserEdited(false);
+	};
+
+	const refreshTemplates = () =>
+		api.descriptionTemplates
+			.list()
+			.then(r => setTemplates(r.templates))
+			.catch(() => {
+				/* non-fatal */
+			});
+
+	const handleSaveTemplate = async (name: string) => {
+		if (description.sections.length === 0) {
+			alert('Описание пусто — нечего сохранять.');
+			return;
+		}
+		try {
+			await api.descriptionTemplates.create(name, description.sections);
+			await refreshTemplates();
+		} catch (e) {
+			alert(`Не удалось сохранить шаблон: ${(e as Error).message}`);
+		}
+	};
+
+	const handleApplyTemplate = (id: string, applyMode: 'replace' | 'append') => {
+		const tpl = templates.find(t => t.id === id);
+		if (!tpl) return;
+		const nextSections =
+			applyMode === 'replace'
+				? tpl.sections
+				: [...description.sections, ...tpl.sections];
+		setDescription({ sections: nextSections });
+		setDescriptionUserEdited(true);
+		const { unresolved } = flattenVars({ sections: tpl.sections }, varMap);
+		if (unresolved.length) {
+			alert(
+				'Шаблон применён. Не подставлены переменные (нет таких параметров ' +
+					'у оффера):\n' +
+					unresolved.map(k => `• ${k}`).join('\n'),
+			);
+		}
+	};
+
+	const handleRenameTemplate = async (id: string, name: string) => {
+		try {
+			await api.descriptionTemplates.update(id, { name });
+			await refreshTemplates();
+		} catch (e) {
+			alert(`Не удалось переименовать: ${(e as Error).message}`);
+		}
+	};
+
+	const handleDeleteTemplate = async (id: string) => {
+		try {
+			await api.descriptionTemplates.remove(id);
+			await refreshTemplates();
+		} catch (e) {
+			alert(`Не удалось удалить: ${(e as Error).message}`);
+		}
 	};
 
 	const buildPayload = (dryRun: boolean) => ({
@@ -468,6 +553,12 @@ export default function App() {
 								}}
 								dirty={descriptionUserEdited}
 								onReset={resetDescription}
+								varMap={varMap}
+								templates={templates}
+								onSaveTemplate={handleSaveTemplate}
+								onApplyTemplate={handleApplyTemplate}
+								onRenameTemplate={handleRenameTemplate}
+								onDeleteTemplate={handleDeleteTemplate}
 							/>
 						)}
 
