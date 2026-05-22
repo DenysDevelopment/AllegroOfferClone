@@ -4,6 +4,7 @@ import {
 	type AccountSummary,
 	type CategoryParameter,
 	type DescriptionSections,
+	type DescriptionTemplate,
 	type MatchingCategory,
 	type OfferParameter,
 	type ProductParameterValue,
@@ -14,6 +15,7 @@ import { Combobox } from './Combobox';
 import { DescriptionEditor } from './DescriptionEditor';
 import { ImagesEditor } from './ImagesEditor';
 import { PublishAccountPicker } from './PublishAccountPicker';
+import { buildCategoryVarMap, flattenVars } from './shortcodes';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -159,6 +161,7 @@ export function NewProductPanel({
 	const [description, setDescription] = useState<DescriptionSections>({
 		sections: [],
 	});
+	const [templates, setTemplates] = useState<DescriptionTemplate[]>([]);
 
 	const [state, setState] = useState<CreateState>({ kind: 'idle' });
 
@@ -259,6 +262,16 @@ export function NewProductPanel({
 		setPendingPrefill(null);
 	}, [pendingPrefill, params, paramsLoading, categoryId]);
 
+	// Description templates are global; load the list once on mount.
+	useEffect(() => {
+		api.descriptionTemplates
+			.list()
+			.then(r => setTemplates(r.templates))
+			.catch(() => {
+				/* non-fatal: templates menu just stays empty */
+			});
+	}, []);
+
 	const pickFromCatalog = async (hit: ProductSearchHit) => {
 		// Fetch the full card to get description + complete parameter list.
 		let full: CatalogProduct;
@@ -282,6 +295,12 @@ export function NewProductPanel({
 	const required = useMemo(() => params.filter(p => p.required), [params]);
 	const optional = useMemo(() => params.filter(p => !p.required), [params]);
 
+	// Description variables resolve from this panel's parameter form.
+	const varMap = useMemo(
+		() => buildCategoryVarMap(params, values),
+		[params, values],
+	);
+
 	const setParamValue = (
 		p: CategoryParameter,
 		raw: { text?: string; dictId?: string },
@@ -301,6 +320,67 @@ export function NewProductPanel({
 		});
 	};
 
+	const refreshTemplates = () =>
+		api.descriptionTemplates
+			.list()
+			.then(r => setTemplates(r.templates))
+			.catch(() => {
+				/* non-fatal */
+			});
+
+	const handleSaveTemplate = async (tplName: string) => {
+		if (description.sections.length === 0) {
+			alert('Описание пусто — нечего сохранять.');
+			return;
+		}
+		try {
+			await api.descriptionTemplates.create(tplName, description.sections);
+			await refreshTemplates();
+		} catch (e) {
+			alert(`Не удалось сохранить шаблон: ${(e as Error).message}`);
+		}
+	};
+
+	const handleApplyTemplate = (id: string, applyMode: 'replace' | 'append') => {
+		const tpl = templates.find(t => t.id === id);
+		if (!tpl) return;
+		// Copy the template's sections so the editor never mutates the cached
+		// template object held in `templates` state.
+		const tplSections = tpl.sections.map(s => ({ items: [...s.items] }));
+		setDescription({
+			sections:
+				applyMode === 'replace'
+					? tplSections
+					: [...description.sections, ...tplSections],
+		});
+		const { unresolved } = flattenVars({ sections: tpl.sections }, varMap);
+		if (unresolved.length) {
+			alert(
+				'Шаблон применён. Не подставлены переменные (нет таких параметров ' +
+					'у товара):\n' +
+					unresolved.map(k => `• ${k}`).join('\n'),
+			);
+		}
+	};
+
+	const handleRenameTemplate = async (id: string, tplName: string) => {
+		try {
+			await api.descriptionTemplates.update(id, { name: tplName });
+			await refreshTemplates();
+		} catch (e) {
+			alert(`Не удалось переименовать: ${(e as Error).message}`);
+		}
+	};
+
+	const handleDeleteTemplate = async (id: string) => {
+		try {
+			await api.descriptionTemplates.remove(id);
+			await refreshTemplates();
+		} catch (e) {
+			alert(`Не удалось удалить: ${(e as Error).message}`);
+		}
+	};
+
 	const buildPayload = async () => {
 		const parameters: ProductParameterValue[] = Object.values(values).filter(
 			v =>
@@ -313,7 +393,8 @@ export function NewProductPanel({
 		// We re-upload each image URL through /api/images/upload-url to get a fresh,
 		// attachable upload URL.
 		const sections: DescriptionSections['sections'] = [];
-		for (const s of description.sections) {
+		const flatDescription = flattenVars(description, varMap).sections;
+		for (const s of flatDescription.sections) {
 			const items: typeof s.items = [];
 			for (const it of s.items) {
 				if (it.type === 'TEXT') {
@@ -545,6 +626,12 @@ export function NewProductPanel({
 				onChange={setDescription}
 				dirty={false}
 				onReset={() => setDescription({ sections: [] })}
+				varMap={varMap}
+				templates={templates}
+				onSaveTemplate={handleSaveTemplate}
+				onApplyTemplate={handleApplyTemplate}
+				onRenameTemplate={handleRenameTemplate}
+				onDeleteTemplate={handleDeleteTemplate}
 			/>
 
 			<div className='sticky bottom-4 space-y-2'>
