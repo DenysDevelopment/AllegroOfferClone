@@ -251,8 +251,11 @@ function RichTextarea({
 	const ref = useRef<HTMLDivElement | null>(null);
 	const lastEmittedRef = useRef<string>(value);
 	const [varMenuOpen, setVarMenuOpen] = useState(false);
+	const pickerRef = useRef<HTMLDivElement | null>(null);
 
-	// Initial mount: write incoming HTML once. Configure execCommand to emit tags.
+	// Initial mount: configure execCommand, then render the initial
+	// token-form value as chips. Deps are intentionally empty — this
+	// captures the mount-time value/varMap on purpose.
 	useEffect(() => {
 		try {
 			document.execCommand('styleWithCSS', false, 'false');
@@ -260,7 +263,23 @@ function RichTextarea({
 		} catch {
 			/* legacy API; ignored if unsupported */
 		}
+		if (ref.current) {
+			ref.current.innerHTML = tokensToChipsHtml(value, varMap);
+		}
+		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
+
+	// Close the variable picker when clicking outside it.
+	useEffect(() => {
+		if (!varMenuOpen) return;
+		const onDocMouseDown = (e: MouseEvent) => {
+			if (!pickerRef.current?.contains(e.target as Node)) {
+				setVarMenuOpen(false);
+			}
+		};
+		document.addEventListener('mousedown', onDocMouseDown);
+		return () => document.removeEventListener('mousedown', onDocMouseDown);
+	}, [varMenuOpen]);
 
 	// External value change (reset / template apply): render tokens as chips.
 	useEffect(() => {
@@ -392,7 +411,7 @@ function RichTextarea({
 					/>
 				</div>
 
-				<div className='relative'>
+				<div className='relative' ref={pickerRef}>
 					<button
 						type='button'
 						onMouseDown={e => e.preventDefault()}
