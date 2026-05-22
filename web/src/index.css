@@ -164,4 +164,13 @@
     @apply inline-flex items-center gap-1.5 h-6 px-2 text-[11px] font-medium
            border border-border bg-soft text-ink-muted rounded-full;
   }
+  .var-chip {
+    @apply inline-flex items-center align-baseline h-5 px-1.5 mx-0.5
+           text-[11px] font-medium leading-none
+           border border-flame-ring bg-flame-tint text-flame
+           rounded select-none whitespace-nowrap cursor-default;
+  }
+  .var-chip--missing {
+    @apply border-border-strong bg-soft text-ink-faint;
+  }
 }
