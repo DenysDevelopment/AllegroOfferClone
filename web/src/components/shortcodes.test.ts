@@ -81,6 +81,12 @@ describe('tokensToChipsHtml', () => {
     expect(html).toContain('&lt;b&gt;');
     expect(html).not.toContain('<b>');
   });
+
+  it('trims whitespace inside the token braces', () => {
+    const html = tokensToChipsHtml('{{ SSD }}', new Map([['SSD', '512 GB']]));
+    expect(html).toContain('data-var-key="SSD"');
+    expect(html).toContain('SSD · 512 GB');
+  });
 });
 
 describe('chipsHtmlToTokens', () => {
@@ -91,6 +97,19 @@ describe('chipsHtmlToTokens', () => {
 
   it('leaves plain text untouched', () => {
     expect(chipsHtmlToTokens('<p>plain</p>')).toBe('<p>plain</p>');
+  });
+
+  it('round-trips multiple chips', () => {
+    const chips = tokensToChipsHtml(
+      '{{SSD}} and {{RAM}}',
+      new Map([['SSD', '512 GB'], ['RAM', '16 GB']]),
+    );
+    expect(chipsHtmlToTokens(chips)).toBe('{{SSD}} and {{RAM}}');
+  });
+
+  it('round-trips a key containing an ampersand', () => {
+    const chips = tokensToChipsHtml('{{A&B}}', new Map([['A&B', 'x']]));
+    expect(chipsHtmlToTokens(chips)).toBe('{{A&B}}');
   });
 });
 
@@ -125,5 +144,13 @@ describe('flattenVars', () => {
       type: 'IMAGE',
       url: 'http://x/y.jpg',
     });
+  });
+
+  it('HTML-escapes resolved values', () => {
+    const result = flattenVars(
+      { sections: [{ items: [{ type: 'TEXT', content: '{{X}}' }] }] },
+      new Map([['X', '<b>']]),
+    );
+    expect(result.sections.sections[0].items[0].content).toBe('&lt;b&gt;');
   });
 });

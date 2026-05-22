@@ -26,7 +26,8 @@ function paramValue(p: OfferParameter): string {
 
 export interface VarMapInput {
   parameters: OfferParameter[];
-  /** Parameter-name -> override value (overrides win over the source value). */
+  /** Parameter-name -> override value. A non-empty override wins over the
+   *  source value; empty values are ignored (treated as "not overridden"). */
   overrides: Record<string, string>;
   title?: string;
   price?: string;
@@ -77,11 +78,22 @@ export function tokensToChipsHtml(
 export function chipsHtmlToTokens(html: string): string {
   const tmp = document.createElement('div');
   tmp.innerHTML = html;
-  for (const chip of Array.from(tmp.querySelectorAll(`[${CHIP_ATTR}]`))) {
-    const key = chip.getAttribute(CHIP_ATTR) ?? '';
-    chip.replaceWith(document.createTextNode(`{{${key}}}`));
+  const chips = Array.from(tmp.querySelectorAll(`[${CHIP_ATTR}]`));
+  if (chips.length === 0) return tmp.innerHTML;
+  // Swap each chip for an alphanumeric marker, then substitute the real
+  // `{{key}}` tokens AFTER serialization — so keys containing & < > " are
+  // not mangled by DOM re-escaping. The marker is randomised per call to
+  // avoid colliding with editor text.
+  const keys: string[] = [];
+  const marker = `vartok${Math.random().toString(36).slice(2)}`;
+  for (const chip of chips) {
+    keys.push(chip.getAttribute(CHIP_ATTR) ?? '');
+    chip.replaceWith(document.createTextNode(`${marker}${keys.length - 1}end`));
   }
-  return tmp.innerHTML;
+  return tmp.innerHTML.replace(
+    new RegExp(`${marker}(\\d+)end`, 'g'),
+    (_m, i) => `{{${keys[Number(i)]}}}`,
+  );
 }
 
 export interface FlattenResult {
