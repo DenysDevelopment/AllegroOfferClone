@@ -16,7 +16,7 @@
     "build:web": "npm run build -w web",
     "start": "npm run start -w server",
     "lint": "npm run lint -ws --if-present",
-    "test": "npm run test -w server"
+    "test": "npm run test --workspaces --if-present"
   },
   "devDependencies": {
     "concurrently": "^9.1.0"
