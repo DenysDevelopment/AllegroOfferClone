@@ -48,8 +48,8 @@ export function buildVarMap(input: VarMapInput): Map<string, string> {
     const k = name.trim();
     if (k && value.trim()) map.set(k, value.trim());
   }
-  if (input.title != null) map.set('@title', input.title);
-  if (input.price != null) map.set('@price', input.price);
+  if (input.title) map.set('@title', input.title);
+  if (input.price) map.set('@price', input.price);
   return map;
 }
 

@@ -28,6 +28,9 @@ export interface DescriptionTemplate {
 export class TemplateStore {
   constructor(private readonly file: string) {}
 
+  /** Serializes mutating ops so concurrent read-modify-write calls don't clobber each other. */
+  private chain: Promise<unknown> = Promise.resolve();
+
   async list(): Promise<DescriptionTemplate[]> {
     try {
       const raw = await fs.readFile(this.file, 'utf8');
@@ -43,44 +46,60 @@ export class TemplateStore {
     name: string,
     sections: DescriptionTemplateSection[],
   ): Promise<DescriptionTemplate> {
-    const now = Date.now();
-    const template: DescriptionTemplate = {
-      id: randomUUID(),
-      name,
-      sections,
-      createdAt: now,
-      updatedAt: now,
-    };
-    const all = await this.list();
-    all.push(template);
-    await this.writeAll(all);
-    return template;
+    return this.enqueue(async () => {
+      const now = Date.now();
+      const template: DescriptionTemplate = {
+        id: randomUUID(),
+        name,
+        sections,
+        createdAt: now,
+        updatedAt: now,
+      };
+      const all = await this.list();
+      all.push(template);
+      await this.writeAll(all);
+      return template;
+    });
   }
 
   async update(
     id: string,
     patch: { name?: string; sections?: DescriptionTemplateSection[] },
   ): Promise<DescriptionTemplate | null> {
-    const all = await this.list();
-    const idx = all.findIndex((t) => t.id === id);
-    if (idx === -1) return null;
-    const next: DescriptionTemplate = {
-      ...all[idx],
-      ...(patch.name !== undefined ? { name: patch.name } : {}),
-      ...(patch.sections !== undefined ? { sections: patch.sections } : {}),
-      updatedAt: Date.now(),
-    };
-    all[idx] = next;
-    await this.writeAll(all);
-    return next;
+    return this.enqueue(async () => {
+      const all = await this.list();
+      const idx = all.findIndex((t) => t.id === id);
+      if (idx === -1) return null;
+      const next: DescriptionTemplate = {
+        ...all[idx],
+        ...(patch.name !== undefined ? { name: patch.name } : {}),
+        ...(patch.sections !== undefined ? { sections: patch.sections } : {}),
+        updatedAt: Date.now(),
+      };
+      all[idx] = next;
+      await this.writeAll(all);
+      return next;
+    });
   }
 
   async remove(id: string): Promise<boolean> {
-    const all = await this.list();
-    const next = all.filter((t) => t.id !== id);
-    if (next.length === all.length) return false;
-    await this.writeAll(next);
-    return true;
+    return this.enqueue(async () => {
+      const all = await this.list();
+      const next = all.filter((t) => t.id !== id);
+      if (next.length === all.length) return false;
+      await this.writeAll(next);
+      return true;
+    });
+  }
+
+  private enqueue<T>(op: () => Promise<T>): Promise<T> {
+    const result = this.chain.then(op, op);
+    // Keep the chain alive regardless of whether `op` resolved or rejected.
+    this.chain = result.then(
+      () => undefined,
+      () => undefined,
+    );
+    return result;
   }
 
   private async writeAll(all: DescriptionTemplate[]): Promise<void> {
