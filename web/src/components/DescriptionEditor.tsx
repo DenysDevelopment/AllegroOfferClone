@@ -1,11 +1,14 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type { DescriptionItem, DescriptionSections } from '../api';
+import { chipHtml, chipsHtmlToTokens, tokensToChipsHtml } from './shortcodes';
 
 interface Props {
 	value: DescriptionSections;
 	onChange: (next: DescriptionSections) => void;
 	dirty: boolean;
 	onReset: () => void;
+	/** key -> resolved value for offer-parameter variables. */
+	varMap: Map<string, string>;
 }
 
 const RENDERED_HTML_CLASS =
@@ -16,6 +19,7 @@ export function DescriptionEditor({
 	onChange,
 	dirty,
 	onReset,
+	varMap,
 }: Props) {
 	const sections = value.sections;
 
@@ -162,6 +166,7 @@ export function DescriptionEditor({
 										<RichTextarea
 											value={it.content}
 											onChange={v => updateItem(sIdx, iIdx, { content: v })}
+											varMap={varMap}
 										/>
 									) : (
 										<div className='grid grid-cols-[56px_1fr] gap-2'>
@@ -226,20 +231,24 @@ export function DescriptionEditor({
 
 /**
  * WYSIWYG-редактор: contentEditable + тулбар на execCommand.
- * Видишь финальный результат сразу — никакого «код / превью» переключения.
- * При submit весь HTML прогоняется через санитайзер под allowed-теги Allegro.
+ * `value` хранится в токен-форме (`{{ключ}}`); внутри DOM токены рисуются
+ * как неделимые чип-спаны со значением переменной. При emit чипы
+ * сериализуются обратно в токены, наружу компонент всегда отдаёт токен-форму.
  */
 function RichTextarea({
 	value,
 	onChange,
+	varMap,
 }: {
 	value: string;
 	onChange: (next: string) => void;
+	varMap: Map<string, string>;
 }) {
 	const ref = useRef<HTMLDivElement | null>(null);
 	const lastEmittedRef = useRef<string>(value);
+	const [varMenuOpen, setVarMenuOpen] = useState(false);
 
-	// Initial mount: write incoming HTML once. Configure execCommand to emit tags, not styles.
+	// Initial mount: write incoming HTML once. Configure execCommand to emit tags.
 	useEffect(() => {
 		try {
 			document.execCommand('styleWithCSS', false, 'false');
@@ -249,23 +258,49 @@ function RichTextarea({
 		}
 	}, []);
 
-	// If parent gives us a value different from what we last emitted (e.g. external reset),
-	// update the DOM. Skip when value matches our own last emission so the caret stays put.
+	// External value change (reset / template apply): render tokens as chips.
 	useEffect(() => {
 		const el = ref.current;
 		if (!el) return;
 		if (value !== lastEmittedRef.current) {
-			el.innerHTML = value;
+			el.innerHTML = tokensToChipsHtml(value, varMap);
 			lastEmittedRef.current = value;
 		}
-	}, [value]);
+	}, [value, varMap]);
+
+	// varMap changed (e.g. an override edited): refresh chip labels in place
+	// without rewriting innerHTML, so the caret is not disturbed.
+	useEffect(() => {
+		const el = ref.current;
+		if (!el) return;
+		for (const chip of Array.from(el.querySelectorAll('[data-var-key]'))) {
+			const key = chip.getAttribute('data-var-key') ?? '';
+			const tmp = document.createElement('div');
+			tmp.innerHTML = chipHtml(key, varMap);
+			const fresh = tmp.firstElementChild;
+			if (fresh) {
+				chip.className = fresh.className;
+				chip.textContent = fresh.textContent;
+			}
+		}
+	}, [varMap]);
 
 	const emit = () => {
 		const el = ref.current;
 		if (!el) return;
-		const html = el.innerHTML;
-		lastEmittedRef.current = html;
-		onChange(html);
+		const tokenHtml = chipsHtmlToTokens(el.innerHTML);
+		lastEmittedRef.current = tokenHtml;
+		onChange(tokenHtml);
+	};
+
+	// On blur, additionally convert any manually typed {{...}} into chips.
+	const emitAndRenderChips = () => {
+		const el = ref.current;
+		if (!el) return;
+		const tokenHtml = chipsHtmlToTokens(el.innerHTML);
+		lastEmittedRef.current = tokenHtml;
+		el.innerHTML = tokensToChipsHtml(tokenHtml, varMap);
+		onChange(tokenHtml);
 	};
 
 	const exec = (cmd: string, arg?: string) => {
@@ -275,6 +310,19 @@ function RichTextarea({
 		} catch {
 			/* unsupported in some browsers; ignored */
 		}
+		emit();
+	};
+
+	const insertVariable = (key: string) => {
+		const el = ref.current;
+		if (!el) return;
+		el.focus();
+		try {
+			document.execCommand('insertHTML', false, chipHtml(key, varMap) + '&nbsp;');
+		} catch {
+			/* ignored */
+		}
+		setVarMenuOpen(false);
 		emit();
 	};
 
@@ -297,51 +345,85 @@ function RichTextarea({
 		</button>
 	);
 
+	const varKeys = Array.from(varMap.keys());
+
 	return (
 		<div className='space-y-1.5'>
-			<div className='flex border border-border rounded-md overflow-hidden w-fit'>
-				<Btn
-					label={<span className='font-bold'>B</span>}
-					title='Полужирный (Ctrl+B)'
-					onClick={() => exec('bold')}
-				/>
-				<Btn
-					label='H1'
-					title='Заголовок 1'
-					onClick={() => exec('formatBlock', 'h1')}
-				/>
-				<Btn
-					label='H2'
-					title='Заголовок 2'
-					onClick={() => exec('formatBlock', 'h2')}
-				/>
-				<Btn
-					label='¶'
-					title='Параграф'
-					onClick={() => exec('formatBlock', 'p')}
-				/>
-				<Btn
-					label='UL'
-					title='Маркированный список'
-					onClick={() => exec('insertUnorderedList')}
-				/>
-				<Btn
-					label='OL'
-					title='Нумерованный список'
-					onClick={() => exec('insertOrderedList')}
-				/>
-				<Btn
-					label='⨯'
-					title='Снять форматирование'
-					onClick={() => exec('removeFormat')}
-				/>
+			<div className='flex items-start gap-1.5'>
+				<div className='flex border border-border rounded-md overflow-hidden w-fit'>
+					<Btn
+						label={<span className='font-bold'>B</span>}
+						title='Полужирный (Ctrl+B)'
+						onClick={() => exec('bold')}
+					/>
+					<Btn
+						label='H1'
+						title='Заголовок 1'
+						onClick={() => exec('formatBlock', 'h1')}
+					/>
+					<Btn
+						label='H2'
+						title='Заголовок 2'
+						onClick={() => exec('formatBlock', 'h2')}
+					/>
+					<Btn
+						label='¶'
+						title='Параграф'
+						onClick={() => exec('formatBlock', 'p')}
+					/>
+					<Btn
+						label='UL'
+						title='Маркированный список'
+						onClick={() => exec('insertUnorderedList')}
+					/>
+					<Btn
+						label='OL'
+						title='Нумерованный список'
+						onClick={() => exec('insertOrderedList')}
+					/>
+					<Btn
+						label='⨯'
+						title='Снять форматирование'
+						onClick={() => exec('removeFormat')}
+					/>
+				</div>
+
+				<div className='relative'>
+					<button
+						type='button'
+						onMouseDown={e => e.preventDefault()}
+						onClick={() => setVarMenuOpen(o => !o)}
+						disabled={varKeys.length === 0}
+						title='Вставить переменную'
+						className='btn btn-ghost h-7 px-2 text-[11px] border border-border disabled:opacity-40'>
+						+ Переменная
+					</button>
+					{varMenuOpen && varKeys.length > 0 && (
+						<div className='absolute z-20 mt-1 max-h-64 w-64 overflow-auto rounded-md border border-border bg-card shadow-lg'>
+							{varKeys.map(key => (
+								<button
+									key={key}
+									type='button'
+									onMouseDown={e => e.preventDefault()}
+									onClick={() => insertVariable(key)}
+									className='flex w-full items-center justify-between gap-2 px-2 h-8 text-left text-[12px] hover:bg-soft'>
+									<span className='font-medium text-ink truncate'>{key}</span>
+									<span className='text-ink-faint truncate'>
+										{varMap.get(key) || '—'}
+									</span>
+								</button>
+							))}
+						</div>
+					)}
+				</div>
 			</div>
+
 			<div
 				ref={ref}
 				contentEditable
 				suppressContentEditableWarning
 				onInput={emit}
-				onBlur={emit}
+				onBlur={emitAndRenderChips}
 				onPaste={e => {
 					// Paste as plain text to avoid copying disallowed inline styles / scripts.
 					e.preventDefault();
