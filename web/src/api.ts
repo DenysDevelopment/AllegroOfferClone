@@ -44,6 +44,14 @@ export interface DescriptionSections {
   sections: Array<{ items: DescriptionItem[] }>;
 }
 
+export interface DescriptionTemplate {
+  id: string;
+  name: string;
+  sections: DescriptionSections['sections'];
+  createdAt: number;
+  updatedAt: number;
+}
+
 export interface ClonePayload {
   sourceOfferId: string;
   paramOverrides: Record<string, string>;
@@ -275,5 +283,26 @@ export const api = {
       throw Object.assign(new Error(message), { status: res.status, data });
     }
     return data as ImageUploadResponse;
+  },
+
+  descriptionTemplates: {
+    list: () =>
+      http<{ templates: DescriptionTemplate[] }>('/api/description-templates'),
+    create: (name: string, sections: DescriptionSections['sections']) =>
+      http<DescriptionTemplate>('/api/description-templates', {
+        json: { name, sections },
+      }),
+    update: (
+      id: string,
+      patch: { name?: string; sections?: DescriptionSections['sections'] },
+    ) =>
+      http<DescriptionTemplate>(
+        `/api/description-templates/${encodeURIComponent(id)}`,
+        { method: 'PUT', json: patch },
+      ),
+    remove: (id: string) =>
+      http<null>(`/api/description-templates/${encodeURIComponent(id)}`, {
+        method: 'DELETE',
+      }),
   },
 };
