@@ -7,9 +7,13 @@ interface Props {
 	onChange: (next: DescriptionSections) => void;
 	dirty: boolean;
 	onReset: () => void;
-	/** key -> resolved value for offer-parameter variables. */
-	varMap: Map<string, string>;
+	/** key -> resolved value for offer-parameter variables. Optional —
+	 *  consumers without variables (e.g. NewProductPanel) may omit it. */
+	varMap?: Map<string, string>;
 }
+
+/** Stable empty var map — default for consumers that have no variables. */
+const EMPTY_VAR_MAP: Map<string, string> = new Map();
 
 const RENDERED_HTML_CLASS =
 	'text-ink leading-snug text-[13px] [&_h1]:text-[15px] [&_h1]:font-semibold [&_h1]:my-2 [&_h2]:text-[14px] [&_h2]:font-semibold [&_h2]:mt-2 [&_h2]:mb-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_b]:font-semibold [&_strong]:font-semibold [&_p]:my-1 [&_li]:my-0.5';
@@ -19,7 +23,7 @@ export function DescriptionEditor({
 	onChange,
 	dirty,
 	onReset,
-	varMap,
+	varMap = EMPTY_VAR_MAP,
 }: Props) {
 	const sections = value.sections;
 
