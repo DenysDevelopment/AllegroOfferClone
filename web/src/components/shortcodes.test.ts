@@ -131,7 +131,10 @@ describe('flattenVars', () => {
       { sections: [{ items: [{ type: 'TEXT', content: '{{Gone}}' }] }] },
       new Map(),
     );
-    expect(result.sections.sections[0].items[0].content).toBe('{{Gone}}');
+    expect(result.sections.sections[0].items[0]).toEqual({
+      type: 'TEXT',
+      content: '{{Gone}}',
+    });
     expect(result.unresolved).toEqual(['Gone']);
   });
 
@@ -151,6 +154,9 @@ describe('flattenVars', () => {
       { sections: [{ items: [{ type: 'TEXT', content: '{{X}}' }] }] },
       new Map([['X', '<b>']]),
     );
-    expect(result.sections.sections[0].items[0].content).toBe('&lt;b&gt;');
+    expect(result.sections.sections[0].items[0]).toEqual({
+      type: 'TEXT',
+      content: '&lt;b&gt;',
+    });
   });
 });
