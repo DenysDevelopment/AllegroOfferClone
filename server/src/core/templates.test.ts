@@ -28,7 +28,9 @@ describe('TemplateStore', () => {
   it('creates a template with an id and timestamps', async () => {
     const store = new TemplateStore(path.join(dir, 'templates.json'));
     const t = await store.create('Laptop base', sampleSections);
-    expect(t.id).toMatch(/.+/);
+    expect(t.id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
     expect(t.name).toBe('Laptop base');
     expect(t.sections).toEqual(sampleSections);
     expect(t.createdAt).toBeGreaterThan(0);
@@ -51,6 +53,14 @@ describe('TemplateStore', () => {
     expect(updated?.name).toBe('New');
     expect(updated?.createdAt).toBe(t.createdAt);
     expect(updated?.updatedAt).toBeGreaterThanOrEqual(t.createdAt);
+  });
+
+  it('updates sections when patched', async () => {
+    const store = new TemplateStore(path.join(dir, 'templates.json'));
+    const t = await store.create('X', sampleSections);
+    const newSections = [{ items: [{ type: 'TEXT' as const, content: 'New' }] }];
+    const updated = await store.update(t.id, { sections: newSections });
+    expect(updated?.sections).toEqual(newSections);
   });
 
   it('returns null when updating a missing id', async () => {

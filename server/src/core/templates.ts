@@ -86,7 +86,7 @@ export class TemplateStore {
   private async writeAll(all: DescriptionTemplate[]): Promise<void> {
     await fs.mkdir(path.dirname(this.file), { recursive: true });
     const tmp = `${this.file}.tmp`;
-    await fs.writeFile(tmp, JSON.stringify(all, null, 2), 'utf8');
+    await fs.writeFile(tmp, JSON.stringify(all, null, 2), { mode: 0o600, encoding: 'utf8' });
     await fs.rename(tmp, this.file);
   }
 }
