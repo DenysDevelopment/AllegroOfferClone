@@ -1,5 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
-import type { DescriptionItem, DescriptionSections } from '../api';
+import type {
+	DescriptionItem,
+	DescriptionSections,
+	DescriptionTemplate,
+} from '../api';
 import { chipHtml, chipsHtmlToTokens, tokensToChipsHtml } from './shortcodes';
 
 interface Props {
@@ -10,6 +14,13 @@ interface Props {
 	/** key -> resolved value for offer-parameter variables. Optional —
 	 *  consumers without variables (e.g. NewProductPanel) may omit it. */
 	varMap?: Map<string, string>;
+	/** Saved description templates. Optional — consumers without templates
+	 *  (e.g. NewProductPanel) omit these and the «Шаблоны» menu is hidden. */
+	templates?: DescriptionTemplate[];
+	onSaveTemplate?: (name: string) => void;
+	onApplyTemplate?: (id: string, mode: 'replace' | 'append') => void;
+	onRenameTemplate?: (id: string, name: string) => void;
+	onDeleteTemplate?: (id: string) => void;
 }
 
 /** Stable empty var map — default for consumers that have no variables. */
@@ -24,6 +35,11 @@ export function DescriptionEditor({
 	dirty,
 	onReset,
 	varMap = EMPTY_VAR_MAP,
+	templates,
+	onSaveTemplate,
+	onApplyTemplate,
+	onRenameTemplate,
+	onDeleteTemplate,
 }: Props) {
 	const sections = value.sections;
 
@@ -99,6 +115,19 @@ export function DescriptionEditor({
 						</span>
 					)}
 				</span>
+				{onSaveTemplate &&
+					onApplyTemplate &&
+					onRenameTemplate &&
+					onDeleteTemplate && (
+						<TemplateMenu
+							templates={templates ?? []}
+							sectionsCount={sections.length}
+							onSave={onSaveTemplate}
+							onApply={onApplyTemplate}
+							onRename={onRenameTemplate}
+							onDelete={onDeleteTemplate}
+						/>
+					)}
 				<div className='flex items-center gap-1'>
 					{dirty && (
 						<button
@@ -456,6 +485,111 @@ function RichTextarea({
 				className={`border border-border rounded-md p-3 bg-card min-h-[160px] focus:outline-none focus:ring-1 focus:ring-flame/40 ${RENDERED_HTML_CLASS}`}
 				data-placeholder='Текст описания. Выдели часть и кликни кнопку для форматирования.'
 			/>
+		</div>
+	);
+}
+
+/**
+ * «Шаблоны» — выпадающее меню в шапке описания: сохранить текущее описание
+ * как именованный шаблон, применить шаблон (заменить или добавить секции),
+ * переименовать и удалить.
+ */
+function TemplateMenu({
+	templates,
+	sectionsCount,
+	onSave,
+	onApply,
+	onRename,
+	onDelete,
+}: {
+	templates: DescriptionTemplate[];
+	sectionsCount: number;
+	onSave: (name: string) => void;
+	onApply: (id: string, mode: 'replace' | 'append') => void;
+	onRename: (id: string, name: string) => void;
+	onDelete: (id: string) => void;
+}) {
+	const [open, setOpen] = useState(false);
+
+	const handleSave = () => {
+		const name = window.prompt('Название шаблона')?.trim();
+		if (name) onSave(name);
+		setOpen(false);
+	};
+
+	const handleApply = (id: string) => {
+		const replace =
+			sectionsCount === 0 ||
+			window.confirm(
+				'OK — заменить текущее описание шаблоном.\n' +
+					'Отмена — добавить секции шаблона в конец.',
+			);
+		onApply(id, replace ? 'replace' : 'append');
+		setOpen(false);
+	};
+
+	const handleRename = (t: DescriptionTemplate) => {
+		const name = window.prompt('Новое название', t.name)?.trim();
+		if (name && name !== t.name) onRename(t.id, name);
+	};
+
+	const handleDelete = (t: DescriptionTemplate) => {
+		if (window.confirm(`Удалить шаблон «${t.name}»?`)) onDelete(t.id);
+	};
+
+	return (
+		<div className='relative'>
+			<button
+				type='button'
+				onClick={() => setOpen(o => !o)}
+				className='btn btn-ghost h-7 px-2 text-[12px]'>
+				Шаблоны
+			</button>
+			{open && (
+				<div className='absolute right-0 z-20 mt-1 w-72 rounded-md border border-border bg-card shadow-lg'>
+					<button
+						type='button'
+						onClick={handleSave}
+						className='block w-full px-3 h-9 text-left text-[12px] font-medium hover:bg-soft border-b border-border-muted'>
+						+ Сохранить как шаблон
+					</button>
+					{templates.length === 0 ? (
+						<p className='px-3 py-3 text-[12px] text-ink-faint'>
+							Сохранённых шаблонов нет.
+						</p>
+					) : (
+						<div className='max-h-64 overflow-auto py-1'>
+							{templates.map(t => (
+								<div
+									key={t.id}
+									className='flex items-center gap-1 px-2 h-9 hover:bg-soft'>
+									<button
+										type='button'
+										onClick={() => handleApply(t.id)}
+										title='Применить шаблон'
+										className='flex-1 text-left text-[12px] text-ink truncate'>
+										{t.name}
+									</button>
+									<button
+										type='button'
+										onClick={() => handleRename(t)}
+										title='Переименовать'
+										className='btn btn-ghost h-7 w-7 px-0 text-ink-faint'>
+										✎
+									</button>
+									<button
+										type='button'
+										onClick={() => handleDelete(t)}
+										title='Удалить'
+										className='btn btn-ghost h-7 w-7 px-0 text-ink-faint hover:text-bad'>
+										✕
+									</button>
+								</div>
+							))}
+						</div>
+					)}
+				</div>
+			)}
 		</div>
 	);
 }
