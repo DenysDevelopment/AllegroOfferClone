@@ -4,7 +4,13 @@ import type {
 	DescriptionSections,
 	DescriptionTemplate,
 } from '../api';
-import { chipHtml, chipsHtmlToTokens, tokensToChipsHtml } from './shortcodes';
+import {
+	chipHtml,
+	chipsHtmlToTokens,
+	parsePhotoRefUrl,
+	tokensToChipsHtml,
+} from './shortcodes';
+import { PhotoPicker } from './PhotoPicker';
 
 interface Props {
 	value: DescriptionSections;
@@ -212,34 +218,87 @@ export function DescriptionEditor({
 											varMap={varMap}
 											photoUrls={photoUrls}
 										/>
-									) : (
-										<div className='grid grid-cols-[56px_1fr] gap-2'>
-											<div className='aspect-square w-14 h-14 border border-border rounded-md overflow-hidden bg-soft flex items-center justify-center'>
-												{it.url ? (
-													<img
-														src={it.url}
-														alt=''
-														loading='lazy'
-														className='w-full h-full object-contain'
-														onError={e => {
-															(e.target as HTMLImageElement).style.opacity =
-																'0.2';
-														}}
-													/>
-												) : (
-													<span className='text-ink-faint text-[10px]'>—</span>
-												)}
+									) : (() => {
+										const photoRef = parsePhotoRefUrl(it.url);
+										if (photoRef) {
+											const previewUrl =
+												photoRef.idx >= 1 && photoRef.idx <= photoUrls.length
+													? photoUrls[photoRef.idx - 1]
+													: undefined;
+											const missing = previewUrl === undefined;
+											return (
+												<div className='grid grid-cols-[56px_1fr] gap-2 items-center'>
+													<div className='aspect-square w-14 h-14 border border-border rounded-md overflow-hidden bg-soft flex items-center justify-center'>
+														{previewUrl ? (
+															<img
+																src={previewUrl}
+																alt=''
+																loading='lazy'
+																className='w-full h-full object-cover'
+																onError={e => {
+																	(e.target as HTMLImageElement).style.opacity =
+																		'0.2';
+																}}
+															/>
+														) : (
+															<span className='text-ink-faint text-[10px]'>
+																—
+															</span>
+														)}
+													</div>
+													<span
+														className={
+															missing
+																? 'var-chip var-chip--missing'
+																: 'var-chip'
+														}>
+														{missing
+															? `Фото · ${photoRef.idx} · нет`
+															: `Фото · ${photoRef.idx}`}
+													</span>
+												</div>
+											);
+										}
+										return (
+											<div className='grid grid-cols-[56px_1fr_auto] gap-2 items-center'>
+												<div className='aspect-square w-14 h-14 border border-border rounded-md overflow-hidden bg-soft flex items-center justify-center'>
+													{it.url ? (
+														<img
+															src={it.url}
+															alt=''
+															loading='lazy'
+															className='w-full h-full object-contain'
+															onError={e => {
+																(e.target as HTMLImageElement).style.opacity =
+																	'0.2';
+															}}
+														/>
+													) : (
+														<span className='text-ink-faint text-[10px]'>—</span>
+													)}
+												</div>
+												<input
+													className='input font-mono text-[12px]'
+													placeholder='https://…'
+													value={it.url}
+													onChange={e =>
+														updateItem(sIdx, iIdx, { url: e.target.value })
+													}
+												/>
+												<PhotoPicker
+													photoUrls={photoUrls}
+													onPick={n =>
+														updateItem(sIdx, iIdx, {
+															url: `{{photo:${n}}}`,
+														})
+													}
+													buttonClassName='btn btn-ghost h-10 w-10 px-0 text-ink-faint hover:text-ink text-[11px] disabled:opacity-40'
+													label='+ Фото'
+													title='Превратить в ссылку на фото оффера'
+												/>
 											</div>
-											<input
-												className='input font-mono text-[12px]'
-												placeholder='https://…'
-												value={it.url}
-												onChange={e =>
-													updateItem(sIdx, iIdx, { url: e.target.value })
-												}
-											/>
-										</div>
-									)}
+										);
+									})()}
 									<button
 										type='button'
 										onClick={() => removeItem(sIdx, iIdx)}
@@ -264,6 +323,22 @@ export function DescriptionEditor({
 									className='btn btn-ghost h-7 px-2 text-[12px]'>
 									+ картинка
 								</button>
+								<PhotoPicker
+									photoUrls={photoUrls}
+									onPick={n => {
+										const next = sections.map((sec, i) =>
+											i === sIdx
+												? {
+														items: [
+															...sec.items,
+															{ type: 'IMAGE' as const, url: `{{photo:${n}}}` },
+														],
+													}
+												: sec,
+										);
+										setSections(next);
+									}}
+								/>
 							</div>
 						</div>
 					))
