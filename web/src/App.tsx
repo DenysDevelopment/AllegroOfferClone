@@ -13,7 +13,11 @@ import {
 import { AccountSwitcher } from './components/AccountSwitcher';
 import { ConnectGate } from './components/ConnectGate';
 import { DescriptionEditor } from './components/DescriptionEditor';
-import { buildVarMap, flattenVars } from './components/shortcodes';
+import {
+	buildVarMap,
+	expandPhotoChips,
+	flattenVars,
+} from './components/shortcodes';
 import {
 	FindProductPanel,
 	type SelectedTargetProduct,
@@ -308,8 +312,9 @@ export default function App() {
 		[imageUrls],
 	);
 
-	// Strip empty TEXT items, drop emptied sections, then flatten {{variables}}
-	// to plain text so Allegro receives no tokens.
+	// Strip empty TEXT items, drop emptied sections, flatten {{variables}}
+	// to plain text, then expand {{photo:N}} chips into real IMAGE items
+	// — so Allegro receives no tokens.
 	const cleanedDescription = useMemo<DescriptionSections | undefined>(() => {
 		const cleaned = description.sections
 			.map(s => ({
@@ -319,8 +324,9 @@ export default function App() {
 			}))
 			.filter(s => s.items.length > 0);
 		if (cleaned.length === 0) return undefined;
-		return flattenVars({ sections: cleaned }, varMap).sections;
-	}, [description, varMap]);
+		const flat = flattenVars({ sections: cleaned }, varMap).sections;
+		return expandPhotoChips(flat, cleanedImages).sections;
+	}, [description, varMap, cleanedImages]);
 
 	const resetImages = () => {
 		if (!preview) return;
@@ -577,6 +583,7 @@ export default function App() {
 								onApplyTemplate={handleApplyTemplate}
 								onRenameTemplate={handleRenameTemplate}
 								onDeleteTemplate={handleDeleteTemplate}
+								photoUrls={cleanedImages}
 							/>
 						)}
 
