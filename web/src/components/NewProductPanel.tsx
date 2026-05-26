@@ -15,7 +15,11 @@ import { Combobox } from './Combobox';
 import { DescriptionEditor } from './DescriptionEditor';
 import { ImagesEditor } from './ImagesEditor';
 import { PublishAccountPicker } from './PublishAccountPicker';
-import { buildCategoryVarMap, flattenVars } from './shortcodes';
+import {
+	buildCategoryVarMap,
+	expandPhotoChips,
+	flattenVars,
+} from './shortcodes';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -404,8 +408,10 @@ export function NewProductPanel({
 		// We re-upload each image URL through /api/images/upload-url to get a fresh,
 		// attachable upload URL.
 		const sections: DescriptionSections['sections'] = [];
-		const { sections: flatDescription } = flattenVars(description, varMap);
-		for (const s of flatDescription.sections) {
+		const cleanedImages = images.map(u => u.trim()).filter(Boolean);
+		const flat = flattenVars(description, varMap).sections;
+		const expanded = expandPhotoChips(flat, cleanedImages).sections;
+		for (const s of expanded.sections) {
 			const items: typeof s.items = [];
 			for (const it of s.items) {
 				if (it.type === 'TEXT') {
@@ -434,7 +440,7 @@ export function NewProductPanel({
 			name: name.trim(),
 			category: { id: categoryId.trim() },
 			language,
-			images: images.map(u => u.trim()).filter(Boolean),
+			images: cleanedImages,
 			parameters,
 			...(cleanedDescription ? { description: cleanedDescription } : {}),
 			...(publishAccountId ? { accountId: publishAccountId } : {}),
@@ -658,6 +664,7 @@ export function NewProductPanel({
 				onApplyTemplate={handleApplyTemplate}
 				onRenameTemplate={handleRenameTemplate}
 				onDeleteTemplate={handleDeleteTemplate}
+				photoUrls={images}
 			/>
 
 			<div className='sticky bottom-4 space-y-2'>
