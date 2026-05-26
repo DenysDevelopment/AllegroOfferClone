@@ -3,8 +3,10 @@ import type { CategoryParameter, OfferParameter } from '../api';
 import {
   buildCategoryVarMap,
   buildVarMap,
+  chipHtml,
   chipsHtmlToTokens,
   escapeHtml,
+  expandPhotoChips,
   flattenVars,
   tokensToChipsHtml,
 } from './shortcodes';
@@ -236,5 +238,140 @@ describe('buildCategoryVarMap', () => {
       { p7: { id: 'p7', valuesIds: ['d1', 'd2'] } },
     );
     expect(map.get('Złącza')).toBe('USB-C, HDMI');
+  });
+});
+
+describe('chipHtml — photo variant', () => {
+  it('renders a photo chip with `Фото · N`', () => {
+    const html = chipHtml('photo:1', new Map(), ['http://x/a.jpg']);
+    expect(html).toContain('data-photo-idx="1"');
+    expect(html).toContain('Фото · 1');
+    expect(html).toContain('contenteditable="false"');
+    expect(html).not.toContain('var-chip--missing');
+  });
+
+  it('marks a photo chip as missing when N is out of range', () => {
+    const html = chipHtml('photo:5', new Map(), ['http://x/a.jpg']);
+    expect(html).toContain('var-chip--missing');
+    expect(html).toContain('Фото · 5 · нет');
+  });
+
+  it('does not put a data-var-key on a photo chip', () => {
+    const html = chipHtml('photo:2', new Map(), ['a', 'b']);
+    expect(html).not.toContain('data-var-key');
+  });
+});
+
+describe('tokensToChipsHtml — photo tokens', () => {
+  it('renders {{photo:N}} as a photo chip', () => {
+    const html = tokensToChipsHtml('A {{photo:1}} B', new Map(), [
+      'http://x/a.jpg',
+    ]);
+    expect(html).toContain('data-photo-idx="1"');
+    expect(html).toContain('Фото · 1');
+  });
+
+  it('keeps variable tokens working alongside photo tokens', () => {
+    const html = tokensToChipsHtml(
+      '{{SSD}} and {{photo:1}}',
+      new Map([['SSD', '512 GB']]),
+      ['http://x/a.jpg'],
+    );
+    expect(html).toContain('data-var-key="SSD"');
+    expect(html).toContain('SSD · 512 GB');
+    expect(html).toContain('data-photo-idx="1"');
+  });
+});
+
+describe('chipsHtmlToTokens — photo chips', () => {
+  it('round-trips a photo chip', () => {
+    const chips = tokensToChipsHtml('{{photo:3}}', new Map(), [
+      'a',
+      'b',
+      'c',
+    ]);
+    expect(chipsHtmlToTokens(chips)).toBe('{{photo:3}}');
+  });
+
+  it('round-trips a mix of variable and photo chips', () => {
+    const chips = tokensToChipsHtml(
+      'X {{SSD}} Y {{photo:2}} Z',
+      new Map([['SSD', '512 GB']]),
+      ['a', 'b'],
+    );
+    expect(chipsHtmlToTokens(chips)).toBe('X {{SSD}} Y {{photo:2}} Z');
+  });
+});
+
+describe('expandPhotoChips', () => {
+  it('splits a TEXT item around a resolved photo token', () => {
+    const r = expandPhotoChips(
+      { sections: [{ items: [{ type: 'TEXT', content: 'A {{photo:1}} B' }] }] },
+      ['http://x/a.jpg'],
+    );
+    expect(r.sections.sections[0].items).toEqual([
+      { type: 'TEXT', content: 'A ' },
+      { type: 'IMAGE', url: 'http://x/a.jpg' },
+      { type: 'TEXT', content: ' B' },
+    ]);
+    expect(r.unresolved).toEqual([]);
+  });
+
+  it('handles multiple photo tokens in one TEXT item', () => {
+    const r = expandPhotoChips(
+      {
+        sections: [
+          { items: [{ type: 'TEXT', content: '{{photo:1}}{{photo:2}} tail' }] },
+        ],
+      },
+      ['http://x/a.jpg', 'http://x/b.jpg'],
+    );
+    expect(r.sections.sections[0].items).toEqual([
+      { type: 'IMAGE', url: 'http://x/a.jpg' },
+      { type: 'IMAGE', url: 'http://x/b.jpg' },
+      { type: 'TEXT', content: ' tail' },
+    ]);
+  });
+
+  it('drops empty TEXT pieces when chips are at the edges', () => {
+    const r = expandPhotoChips(
+      { sections: [{ items: [{ type: 'TEXT', content: '{{photo:1}}' }] }] },
+      ['http://x/a.jpg'],
+    );
+    expect(r.sections.sections[0].items).toEqual([
+      { type: 'IMAGE', url: 'http://x/a.jpg' },
+    ]);
+  });
+
+  it('leaves an out-of-range token in the TEXT and reports it', () => {
+    const r = expandPhotoChips(
+      { sections: [{ items: [{ type: 'TEXT', content: 'A {{photo:7}} B' }] }] },
+      ['http://x/a.jpg'],
+    );
+    expect(r.sections.sections[0].items).toEqual([
+      { type: 'TEXT', content: 'A {{photo:7}} B' },
+    ]);
+    expect(r.unresolved).toEqual(['photo:7']);
+  });
+
+  it('preserves an IMAGE item untouched', () => {
+    const r = expandPhotoChips(
+      { sections: [{ items: [{ type: 'IMAGE', url: 'http://x/y.jpg' }] }] },
+      [],
+    );
+    expect(r.sections.sections[0].items).toEqual([
+      { type: 'IMAGE', url: 'http://x/y.jpg' },
+    ]);
+  });
+
+  it('returns the original TEXT item when it has no photo tokens', () => {
+    const original = {
+      sections: [{ items: [{ type: 'TEXT' as const, content: 'plain text' }] }],
+    };
+    const r = expandPhotoChips(original, ['a']);
+    expect(r.sections.sections[0].items[0]).toEqual({
+      type: 'TEXT',
+      content: 'plain text',
+    });
   });
 });

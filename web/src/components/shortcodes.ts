@@ -6,6 +6,9 @@ const TOKEN_RE = /\{\{\s*([^{}]+?)\s*\}\}/g;
 /** Attribute carrying the raw variable key on a chip span. */
 const CHIP_ATTR = 'data-var-key';
 
+/** Recognises a photo-reference token key (1-based index). */
+const PHOTO_KEY_RE = /^photo:(\d+)$/;
+
 export function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -85,8 +88,20 @@ export function buildCategoryVarMap(
   return map;
 }
 
-/** Chip HTML for a single key, using the current var map for the value. */
-export function chipHtml(key: string, varMap: Map<string, string>): string {
+/** Chip HTML for a single key, using the current var map / photo list. */
+export function chipHtml(
+  key: string,
+  varMap: Map<string, string>,
+  photoUrls: string[] = [],
+): string {
+  const photoMatch = PHOTO_KEY_RE.exec(key);
+  if (photoMatch) {
+    const n = Number(photoMatch[1]);
+    const missing = n < 1 || n > photoUrls.length;
+    const label = missing ? `Фото · ${n} · нет` : `Фото · ${n}`;
+    const cls = missing ? 'var-chip var-chip--missing' : 'var-chip';
+    return `<span class="${cls}" data-photo-idx="${n}" contenteditable="false">${escapeHtml(label)}</span>`;
+  }
   const value = varMap.get(key);
   const missing = value === undefined || value === '';
   const label = missing
@@ -100,9 +115,10 @@ export function chipHtml(key: string, varMap: Map<string, string>): string {
 export function tokensToChipsHtml(
   html: string,
   varMap: Map<string, string>,
+  photoUrls: string[] = [],
 ): string {
   return html.replace(TOKEN_RE, (_m, rawKey: string) =>
-    chipHtml(rawKey.trim(), varMap),
+    chipHtml(rawKey.trim(), varMap, photoUrls),
   );
 }
 
@@ -110,16 +126,22 @@ export function tokensToChipsHtml(
 export function chipsHtmlToTokens(html: string): string {
   const tmp = document.createElement('div');
   tmp.innerHTML = html;
-  const chips = Array.from(tmp.querySelectorAll(`[${CHIP_ATTR}]`));
+  const chips = Array.from(
+    tmp.querySelectorAll(`[${CHIP_ATTR}], [data-photo-idx]`),
+  );
   if (chips.length === 0) return tmp.innerHTML;
   // Swap each chip for an alphanumeric marker, then substitute the real
-  // `{{key}}` tokens AFTER serialization — so keys containing & < > " are
-  // not mangled by DOM re-escaping. The marker is randomised per call to
-  // avoid colliding with editor text.
+  // `{{key}}` tokens AFTER serialization — keeps keys containing & < > "
+  // intact and avoids any HTML re-escaping pitfalls.
   const keys: string[] = [];
   const marker = `vartok${Math.random().toString(36).slice(2)}`;
   for (const chip of chips) {
-    keys.push(chip.getAttribute(CHIP_ATTR) ?? '');
+    const photoIdx = chip.getAttribute('data-photo-idx');
+    const key =
+      photoIdx !== null
+        ? `photo:${photoIdx}`
+        : (chip.getAttribute(CHIP_ATTR) ?? '');
+    keys.push(key);
     chip.replaceWith(document.createTextNode(`${marker}${keys.length - 1}end`));
   }
   return tmp.innerHTML.replace(
@@ -159,6 +181,61 @@ export function flattenVars(
         return { ...it, content };
       }),
     })),
+  };
+  return { sections, unresolved: [...unresolved] };
+}
+
+/** Matches a `{{photo:N}}` token (1-based index). */
+const PHOTO_TOKEN_RE = /\{\{\s*photo:(\d+)\s*\}\}/g;
+
+/**
+ * Replaces `{{photo:N}}` tokens in every TEXT item with real IMAGE items,
+ * resolving N to `photoUrls[N-1]` (1-based). Out-of-range tokens are left
+ * literal in the TEXT and their keys are reported in `unresolved`.
+ */
+export function expandPhotoChips(
+  description: DescriptionSections,
+  photoUrls: string[],
+): { sections: DescriptionSections; unresolved: string[] } {
+  const unresolved = new Set<string>();
+  const sections = {
+    sections: description.sections.map((s) => {
+      const items: typeof s.items = [];
+      for (const it of s.items) {
+        if (it.type !== 'TEXT') {
+          items.push(it);
+          continue;
+        }
+        const text = it.content;
+        const re = new RegExp(PHOTO_TOKEN_RE.source, 'g');
+        let lastIdx = 0;
+        let cursor = '';
+        let split = false;
+        let m: RegExpExecArray | null;
+        while ((m = re.exec(text)) !== null) {
+          const n = Number(m[1]);
+          const url = n >= 1 && n <= photoUrls.length ? photoUrls[n - 1] : null;
+          cursor += text.slice(lastIdx, m.index);
+          if (url) {
+            split = true;
+            if (cursor) items.push({ type: 'TEXT', content: cursor });
+            cursor = '';
+            items.push({ type: 'IMAGE', url });
+          } else {
+            unresolved.add(`photo:${n}`);
+            cursor += m[0];
+          }
+          lastIdx = re.lastIndex;
+        }
+        cursor += text.slice(lastIdx);
+        if (!split) {
+          items.push(it);
+        } else if (cursor) {
+          items.push({ type: 'TEXT', content: cursor });
+        }
+      }
+      return { items };
+    }),
   };
   return { sections, unresolved: [...unresolved] };
 }
