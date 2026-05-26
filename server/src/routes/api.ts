@@ -19,14 +19,31 @@ const descriptionSchema = z.object({
     .min(1),
 });
 
+// Templates may carry `{{photo:N}}` tokens in IMAGE.url — they are resolved
+// to real URLs client-side via `expandPhotoChips` before the offer/product
+// payload reaches `descriptionSchema` (which stays strict).
+const templateDescriptionItemSchema = z.discriminatedUnion('type', [
+  z.object({ type: z.literal('TEXT'), content: z.string() }),
+  z.object({
+    type: z.literal('IMAGE'),
+    url: z.union([
+      z.string().url(),
+      z.string().regex(/^\{\{photo:\d+\}\}$/),
+    ]),
+  }),
+]);
+const templateDescriptionSections = z
+  .array(z.object({ items: z.array(templateDescriptionItemSchema).min(1) }))
+  .min(1);
+
 const templateCreateSchema = z.object({
   name: z.string().trim().min(1).max(100),
-  sections: descriptionSchema.shape.sections,
+  sections: templateDescriptionSections,
 });
 
 const templateUpdateSchema = z.object({
   name: z.string().trim().min(1).max(100).optional(),
-  sections: descriptionSchema.shape.sections.optional(),
+  sections: templateDescriptionSections.optional(),
 });
 
 const productParameterSchema = z
