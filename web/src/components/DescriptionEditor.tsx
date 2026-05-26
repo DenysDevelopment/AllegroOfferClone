@@ -14,6 +14,10 @@ interface Props {
 	/** key -> resolved value for offer-parameter variables. Optional —
 	 *  consumers without variables (e.g. NewProductPanel) may omit it. */
 	varMap?: Map<string, string>;
+	/** Current offer photos (CDN URLs). Optional — used by the «+ Фото»
+	 *  picker and by chip rendering so `{{photo:N}}` chips show the
+	 *  right missing/ok state live as the photo list changes. */
+	photoUrls?: string[];
 	/** Saved description templates. Optional — consumers without templates
 	 *  (e.g. NewProductPanel) omit these and the «Шаблоны» menu is hidden. */
 	templates?: DescriptionTemplate[];
@@ -26,6 +30,9 @@ interface Props {
 /** Stable empty var map — default for consumers that have no variables. */
 const EMPTY_VAR_MAP: Map<string, string> = new Map();
 
+/** Stable empty photo list — default for consumers without photos. */
+const EMPTY_PHOTO_URLS: string[] = [];
+
 const RENDERED_HTML_CLASS =
 	'text-ink leading-snug text-[13px] [&_h1]:text-[15px] [&_h1]:font-semibold [&_h1]:my-2 [&_h2]:text-[14px] [&_h2]:font-semibold [&_h2]:mt-2 [&_h2]:mb-1 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_b]:font-semibold [&_strong]:font-semibold [&_p]:my-1 [&_li]:my-0.5';
 
@@ -35,6 +42,7 @@ export function DescriptionEditor({
 	dirty,
 	onReset,
 	varMap = EMPTY_VAR_MAP,
+	photoUrls = EMPTY_PHOTO_URLS,
 	templates,
 	onSaveTemplate,
 	onApplyTemplate,
@@ -202,6 +210,7 @@ export function DescriptionEditor({
 											value={it.content}
 											onChange={v => updateItem(sIdx, iIdx, { content: v })}
 											varMap={varMap}
+											photoUrls={photoUrls}
 										/>
 									) : (
 										<div className='grid grid-cols-[56px_1fr] gap-2'>
@@ -274,15 +283,19 @@ function RichTextarea({
 	value,
 	onChange,
 	varMap,
+	photoUrls,
 }: {
 	value: string;
 	onChange: (next: string) => void;
 	varMap: Map<string, string>;
+	photoUrls: string[];
 }) {
 	const ref = useRef<HTMLDivElement | null>(null);
 	const lastEmittedRef = useRef<string>(value);
 	const [varMenuOpen, setVarMenuOpen] = useState(false);
 	const pickerRef = useRef<HTMLDivElement | null>(null);
+	const [photoMenuOpen, setPhotoMenuOpen] = useState(false);
+	const photoPickerRef = useRef<HTMLDivElement | null>(null);
 
 	// Initial mount: configure execCommand, then render the initial
 	// token-form value as chips. Deps are intentionally empty — this
@@ -295,7 +308,7 @@ function RichTextarea({
 			/* legacy API; ignored if unsupported */
 		}
 		if (ref.current) {
-			ref.current.innerHTML = tokensToChipsHtml(value, varMap);
+			ref.current.innerHTML = tokensToChipsHtml(value, varMap, photoUrls);
 		}
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, []);
@@ -312,32 +325,50 @@ function RichTextarea({
 		return () => document.removeEventListener('mousedown', onDocMouseDown);
 	}, [varMenuOpen]);
 
+	// Close the photo picker when clicking outside it.
+	useEffect(() => {
+		if (!photoMenuOpen) return;
+		const onDocMouseDown = (e: MouseEvent) => {
+			if (!photoPickerRef.current?.contains(e.target as Node)) {
+				setPhotoMenuOpen(false);
+			}
+		};
+		document.addEventListener('mousedown', onDocMouseDown);
+		return () => document.removeEventListener('mousedown', onDocMouseDown);
+	}, [photoMenuOpen]);
+
 	// External value change (reset / template apply): render tokens as chips.
 	useEffect(() => {
 		const el = ref.current;
 		if (!el) return;
 		if (value !== lastEmittedRef.current) {
-			el.innerHTML = tokensToChipsHtml(value, varMap);
+			el.innerHTML = tokensToChipsHtml(value, varMap, photoUrls);
 			lastEmittedRef.current = value;
 		}
-	}, [value, varMap]);
+	}, [value, varMap, photoUrls]);
 
-	// varMap changed (e.g. an override edited): refresh chip labels in place
-	// without rewriting innerHTML, so the caret is not disturbed.
+	// varMap or photoUrls changed: refresh chip labels in place without
+	// rewriting innerHTML, so the caret is not disturbed.
 	useEffect(() => {
 		const el = ref.current;
 		if (!el) return;
-		for (const chip of Array.from(el.querySelectorAll('[data-var-key]'))) {
-			const key = chip.getAttribute('data-var-key') ?? '';
+		for (const chip of Array.from(
+			el.querySelectorAll('[data-var-key], [data-photo-idx]'),
+		)) {
+			const photoIdx = chip.getAttribute('data-photo-idx');
+			const key =
+				photoIdx !== null
+					? `photo:${photoIdx}`
+					: (chip.getAttribute('data-var-key') ?? '');
 			const tmp = document.createElement('div');
-			tmp.innerHTML = chipHtml(key, varMap);
+			tmp.innerHTML = chipHtml(key, varMap, photoUrls);
 			const fresh = tmp.firstElementChild;
 			if (fresh) {
 				chip.className = fresh.className;
 				chip.textContent = fresh.textContent;
 			}
 		}
-	}, [varMap]);
+	}, [varMap, photoUrls]);
 
 	const emit = () => {
 		const el = ref.current;
@@ -353,7 +384,7 @@ function RichTextarea({
 		if (!el) return;
 		const tokenHtml = chipsHtmlToTokens(el.innerHTML);
 		lastEmittedRef.current = tokenHtml;
-		el.innerHTML = tokensToChipsHtml(tokenHtml, varMap);
+		el.innerHTML = tokensToChipsHtml(tokenHtml, varMap, photoUrls);
 		onChange(tokenHtml);
 	};
 
@@ -372,11 +403,32 @@ function RichTextarea({
 		if (!el) return;
 		el.focus();
 		try {
-			document.execCommand('insertHTML', false, chipHtml(key, varMap) + '&nbsp;');
+			document.execCommand(
+				'insertHTML',
+				false,
+				chipHtml(key, varMap, photoUrls) + '&nbsp;',
+			);
 		} catch {
 			/* ignored */
 		}
 		setVarMenuOpen(false);
+		emit();
+	};
+
+	const insertPhoto = (n: number) => {
+		const el = ref.current;
+		if (!el) return;
+		el.focus();
+		try {
+			document.execCommand(
+				'insertHTML',
+				false,
+				chipHtml(`photo:${n}`, varMap, photoUrls) + '&nbsp;',
+			);
+		} catch {
+			/* ignored */
+		}
+		setPhotoMenuOpen(false);
 		emit();
 	};
 
@@ -467,6 +519,46 @@ function RichTextarea({
 									</span>
 								</button>
 							))}
+						</div>
+					)}
+				</div>
+
+				<div className='relative' ref={photoPickerRef}>
+					<button
+						type='button'
+						onMouseDown={e => e.preventDefault()}
+						onClick={() => setPhotoMenuOpen(o => !o)}
+						disabled={photoUrls.length === 0}
+						title='Вставить фото'
+						className='btn btn-ghost h-7 px-2 text-[11px] border border-border disabled:opacity-40'>
+						+ Фото
+					</button>
+					{photoMenuOpen && photoUrls.length > 0 && (
+						<div className='absolute z-20 mt-1 max-h-72 w-56 overflow-auto rounded-md border border-border bg-card shadow-lg p-1'>
+							<div className='grid grid-cols-3 gap-1'>
+								{photoUrls.map((url, i) => (
+									<button
+										key={i}
+										type='button'
+										onMouseDown={e => e.preventDefault()}
+										onClick={() => insertPhoto(i + 1)}
+										title={`Фото ${i + 1}`}
+										className='relative aspect-square overflow-hidden rounded border border-border bg-soft hover:border-flame-ring focus:border-flame-ring outline-none'>
+										<img
+											src={url}
+											alt=''
+											loading='lazy'
+											className='absolute inset-0 h-full w-full object-cover'
+											onError={e => {
+												(e.target as HTMLImageElement).style.opacity = '0.2';
+											}}
+										/>
+										<span className='absolute bottom-0.5 left-0.5 rounded bg-card/80 px-1 text-[10px] font-medium text-ink'>
+											{i + 1}
+										</span>
+									</button>
+								))}
+							</div>
 						</div>
 					)}
 				</div>
