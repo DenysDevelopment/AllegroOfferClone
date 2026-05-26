@@ -376,12 +376,20 @@ export default function App() {
 				: [...description.sections, ...tplSections];
 		setDescription({ sections: nextSections });
 		setDescriptionUserEdited(true);
-		const { unresolved } = flattenVars({ sections: tpl.sections }, varMap);
-		if (unresolved.length) {
+		const { unresolved: missingVars } = flattenVars(
+			{ sections: tpl.sections },
+			varMap,
+		);
+		const { unresolved: missingPhotos } = expandPhotoChips(
+			{ sections: tpl.sections },
+			cleanedImages,
+		);
+		const allMissing = [...missingVars, ...missingPhotos];
+		if (allMissing.length) {
 			alert(
-				'Шаблон применён. Не подставлены переменные (нет таких параметров ' +
-					'у оффера):\n' +
-					unresolved.map(k => `• ${k}`).join('\n'),
+				'Шаблон применён. Не подставлены ссылки (нет таких параметров ' +
+					'или фото у оффера):\n' +
+					allMissing.map(k => `• ${k}`).join('\n'),
 			);
 		}
 	};

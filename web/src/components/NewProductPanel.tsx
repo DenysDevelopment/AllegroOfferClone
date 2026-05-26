@@ -310,6 +310,13 @@ export function NewProductPanel({
 		[params],
 	);
 
+	// Trimmed, non-empty image URLs — used both by the description-editor
+	// photo picker (so positions match) and by the published payload.
+	const cleanedImages = useMemo(
+		() => images.map(u => u.trim()).filter(Boolean),
+		[images],
+	);
+
 	// Description variables resolve from this panel's parameter form.
 	const varMap = useMemo(
 		() => buildCategoryVarMap(params, values),
@@ -368,12 +375,20 @@ export function NewProductPanel({
 					? tplSections
 					: [...description.sections, ...tplSections],
 		});
-		const { unresolved } = flattenVars({ sections: tpl.sections }, varMap);
-		if (unresolved.length) {
+		const { unresolved: missingVars } = flattenVars(
+			{ sections: tpl.sections },
+			varMap,
+		);
+		const { unresolved: missingPhotos } = expandPhotoChips(
+			{ sections: tpl.sections },
+			cleanedImages,
+		);
+		const allMissing = [...missingVars, ...missingPhotos];
+		if (allMissing.length) {
 			alert(
-				'Шаблон применён. Не подставлены переменные (нет таких параметров ' +
-					'у товара):\n' +
-					unresolved.map(k => `• ${k}`).join('\n'),
+				'Шаблон применён. Не подставлены ссылки (нет таких параметров ' +
+					'или фото у товара):\n' +
+					allMissing.map(k => `• ${k}`).join('\n'),
 			);
 		}
 	};
@@ -408,7 +423,6 @@ export function NewProductPanel({
 		// We re-upload each image URL through /api/images/upload-url to get a fresh,
 		// attachable upload URL.
 		const sections: DescriptionSections['sections'] = [];
-		const cleanedImages = images.map(u => u.trim()).filter(Boolean);
 		const flat = flattenVars(description, varMap).sections;
 		const expanded = expandPhotoChips(flat, cleanedImages).sections;
 		for (const s of expanded.sections) {
@@ -664,7 +678,7 @@ export function NewProductPanel({
 				onApplyTemplate={handleApplyTemplate}
 				onRenameTemplate={handleRenameTemplate}
 				onDeleteTemplate={handleDeleteTemplate}
-				photoUrls={images}
+				photoUrls={cleanedImages}
 			/>
 
 			<div className='sticky bottom-4 space-y-2'>
