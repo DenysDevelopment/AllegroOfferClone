@@ -374,4 +374,37 @@ describe('expandPhotoChips', () => {
       content: 'plain text',
     });
   });
+
+  it('handles a whitespace-padded token {{ photo:1 }}', () => {
+    const r = expandPhotoChips(
+      { sections: [{ items: [{ type: 'TEXT', content: 'A {{ photo:1 }} B' }] }] },
+      ['http://x/a.jpg'],
+    );
+    expect(r.sections.sections[0].items).toEqual([
+      { type: 'TEXT', content: 'A ' },
+      { type: 'IMAGE', url: 'http://x/a.jpg' },
+      { type: 'TEXT', content: ' B' },
+    ]);
+  });
+
+  it('mixes resolved and unresolved tokens in a single TEXT item', () => {
+    const r = expandPhotoChips(
+      {
+        sections: [
+          {
+            items: [
+              { type: 'TEXT', content: 'A {{photo:1}} and {{photo:7}} B' },
+            ],
+          },
+        ],
+      },
+      ['http://x/a.jpg'],
+    );
+    expect(r.sections.sections[0].items).toEqual([
+      { type: 'TEXT', content: 'A ' },
+      { type: 'IMAGE', url: 'http://x/a.jpg' },
+      { type: 'TEXT', content: ' and {{photo:7}} B' },
+    ]);
+    expect(r.unresolved).toEqual(['photo:7']);
+  });
 });
