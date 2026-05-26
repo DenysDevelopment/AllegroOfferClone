@@ -325,7 +325,10 @@ export default function App() {
 			.filter(s => s.items.length > 0);
 		if (cleaned.length === 0) return undefined;
 		const flat = flattenVars({ sections: cleaned }, varMap).sections;
-		return expandPhotoChips(flat, cleanedImages).sections;
+		const expanded = expandPhotoChips(flat, cleanedImages).sections;
+		const reFiltered = expanded.sections.filter(s => s.items.length > 0);
+		if (reFiltered.length === 0) return undefined;
+		return { sections: reFiltered };
 	}, [description, varMap, cleanedImages]);
 
 	const resetImages = () => {
