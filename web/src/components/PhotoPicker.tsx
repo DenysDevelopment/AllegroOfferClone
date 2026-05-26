@@ -21,7 +21,7 @@ export function PhotoPicker({
 	onPick,
 	label = '+ Фото',
 	buttonClassName,
-	title = 'Вставити фото',
+	title = 'Вставить фото',
 }: PhotoPickerProps) {
 	const [open, setOpen] = useState(false);
 	const wrapperRef = useRef<HTMLDivElement | null>(null);
