@@ -8,6 +8,7 @@ import {
   escapeHtml,
   expandPhotoChips,
   flattenVars,
+  parsePhotoRefUrl,
   tokensToChipsHtml,
 } from './shortcodes';
 
@@ -406,5 +407,89 @@ describe('expandPhotoChips', () => {
       { type: 'TEXT', content: ' and {{photo:7}} B' },
     ]);
     expect(r.unresolved).toEqual(['photo:7']);
+  });
+});
+
+describe('parsePhotoRefUrl', () => {
+  it('parses {{photo:N}} into a 1-based index', () => {
+    expect(parsePhotoRefUrl('{{photo:1}}')).toEqual({ idx: 1 });
+    expect(parsePhotoRefUrl('{{photo:42}}')).toEqual({ idx: 42 });
+  });
+
+  it('returns null for an ordinary URL', () => {
+    expect(parsePhotoRefUrl('https://cdn.allegro.pl/x.jpg')).toBeNull();
+  });
+
+  it('returns null for an empty string', () => {
+    expect(parsePhotoRefUrl('')).toBeNull();
+  });
+
+  it('does not match when there is text around the token', () => {
+    expect(parsePhotoRefUrl(' {{photo:1}}')).toBeNull();
+    expect(parsePhotoRefUrl('{{photo:1}}/')).toBeNull();
+    expect(parsePhotoRefUrl('A {{photo:1}} B')).toBeNull();
+  });
+
+  it('does not match when there is whitespace inside the braces', () => {
+    expect(parsePhotoRefUrl('{{ photo:1 }}')).toBeNull();
+  });
+});
+
+describe('expandPhotoChips — IMAGE items', () => {
+  it('resolves a photo-ref IMAGE item to a real-URL IMAGE item', () => {
+    const r = expandPhotoChips(
+      { sections: [{ items: [{ type: 'IMAGE', url: '{{photo:1}}' }] }] },
+      ['http://x/a.jpg'],
+    );
+    expect(r.sections.sections[0].items).toEqual([
+      { type: 'IMAGE', url: 'http://x/a.jpg' },
+    ]);
+    expect(r.unresolved).toEqual([]);
+  });
+
+  it('drops an out-of-range photo-ref IMAGE item and reports the key', () => {
+    const r = expandPhotoChips(
+      { sections: [{ items: [{ type: 'IMAGE', url: '{{photo:7}}' }] }] },
+      ['http://x/a.jpg'],
+    );
+    expect(r.sections.sections[0].items).toEqual([]);
+    expect(r.unresolved).toEqual(['photo:7']);
+  });
+
+  it('passes a real-URL IMAGE item through unchanged', () => {
+    const r = expandPhotoChips(
+      {
+        sections: [
+          { items: [{ type: 'IMAGE', url: 'http://x/keep.jpg' }] },
+        ],
+      },
+      ['http://x/other.jpg'],
+    );
+    expect(r.sections.sections[0].items).toEqual([
+      { type: 'IMAGE', url: 'http://x/keep.jpg' },
+    ]);
+  });
+
+  it('handles TEXT with inline chip + IMAGE photo-ref in one section', () => {
+    const r = expandPhotoChips(
+      {
+        sections: [
+          {
+            items: [
+              { type: 'TEXT', content: 'before {{photo:1}} after' },
+              { type: 'IMAGE', url: '{{photo:2}}' },
+            ],
+          },
+        ],
+      },
+      ['http://x/a.jpg', 'http://x/b.jpg'],
+    );
+    expect(r.sections.sections[0].items).toEqual([
+      { type: 'TEXT', content: 'before ' },
+      { type: 'IMAGE', url: 'http://x/a.jpg' },
+      { type: 'TEXT', content: ' after' },
+      { type: 'IMAGE', url: 'http://x/b.jpg' },
+    ]);
+    expect(r.unresolved).toEqual([]);
   });
 });

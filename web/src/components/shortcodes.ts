@@ -9,6 +9,18 @@ const CHIP_ATTR = 'data-var-key';
 /** Recognises a photo-reference token key (1-based index). */
 const PHOTO_KEY_RE = /^photo:(\d+)$/;
 
+/** Matches a photo-ref URL exactly (`{{photo:N}}` with no surrounding text). */
+const PHOTO_REF_URL_RE = /^\{\{photo:(\d+)\}\}$/;
+
+/**
+ * Returns `{ idx }` (1-based) if `s` is exactly a `{{photo:N}}` token,
+ * otherwise `null`. Used to tell apart photo-ref IMAGE-items from real URLs.
+ */
+export function parsePhotoRefUrl(s: string): { idx: number } | null {
+  const m = PHOTO_REF_URL_RE.exec(s);
+  return m ? { idx: Number(m[1]) } : null;
+}
+
 export function escapeHtml(s: string): string {
   return s
     .replace(/&/g, '&amp;')
@@ -202,8 +214,16 @@ export function expandPhotoChips(
     sections: description.sections.map((s) => {
       const items: typeof s.items = [];
       for (const it of s.items) {
-        if (it.type !== 'TEXT') {
-          items.push(it);
+        if (it.type === 'IMAGE') {
+          const ref = parsePhotoRefUrl(it.url);
+          if (ref === null) {
+            items.push(it);
+          } else if (ref.idx >= 1 && ref.idx <= photoUrls.length) {
+            items.push({ type: 'IMAGE', url: photoUrls[ref.idx - 1] });
+          } else {
+            unresolved.add(`photo:${ref.idx}`);
+            // Dropped: Allegro would reject the literal token URL.
+          }
           continue;
         }
         const text = it.content;
