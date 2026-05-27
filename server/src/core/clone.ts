@@ -997,7 +997,7 @@ async function syncCatalogProductImagesToGallery(
  * (in Polish: "Opis zawiera niezałączone zdjęcie"). Append any description
  * image URL that's missing from the gallery; mutates body in place.
  */
-function syncDescriptionImagesToGallery(
+export function syncDescriptionImagesToGallery(
 	body: Record<string, unknown>,
 	steps: CloneStep[],
 ): void {
@@ -1034,7 +1034,7 @@ function syncDescriptionImagesToGallery(
  * larger section into multiple sections of at most 2 items, preserving order.
  * Mutates body in place.
  */
-function splitDescriptionSectionsToMaxTwoItems(
+export function splitDescriptionSectionsToMaxTwoItems(
 	body: Record<string, unknown>,
 	steps: CloneStep[],
 ): void {

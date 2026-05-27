@@ -3,7 +3,12 @@ import { Router, type Request, type RequestHandler } from 'express';
 import express from 'express';
 import { z } from 'zod';
 import type { AllegroClient } from '../core/allegro.js';
-import { cloneOffer, buildCloneBody } from '../core/clone.js';
+import {
+  buildCloneBody,
+  cloneOffer,
+  splitDescriptionSectionsToMaxTwoItems,
+  syncDescriptionImagesToGallery,
+} from '../core/clone.js';
 import type { AccountRegistry } from '../core/registry.js';
 import { TemplateStore } from '../core/templates.js';
 import type { AllegroOffer } from '../core/types.js';
@@ -587,7 +592,15 @@ export function apiRouter(registry: AccountRegistry, dataDir: string): Router {
       return res.status(400).json({ error: 'VALIDATION', details: parsed.error.format() });
     }
     const { images, ...rest } = parsed.data;
-    const body = { ...rest, images: images.map((url) => ({ url })) };
+    const body: Record<string, unknown> = {
+      ...rest,
+      images: images.map((url) => ({ url })),
+    };
+    // Mirror the same description fix-ups cloneOffer applies before POST:
+    //  - description IMAGE URLs must also live in `images` (Allegro rule)
+    //  - each section's items array must hold ≤ 2 items
+    syncDescriptionImagesToGallery(body, []);
+    splitDescriptionSectionsToMaxTwoItems(body, []);
     try {
       const result = await req.allegro!.proposeProduct(body);
       if (result.status === 409) {
@@ -609,7 +622,13 @@ export function apiRouter(registry: AccountRegistry, dataDir: string): Router {
       return res.status(400).json({ error: 'VALIDATION', details: parsed.error.format() });
     }
     const { images, ...rest } = parsed.data;
-    res.json({ body: { ...rest, images: images.map((url) => ({ url })) } });
+    const body: Record<string, unknown> = {
+      ...rest,
+      images: images.map((url) => ({ url })),
+    };
+    syncDescriptionImagesToGallery(body, []);
+    splitDescriptionSectionsToMaxTwoItems(body, []);
+    res.json({ body });
   });
 
   // --- images upload (rehosts to Allegro CDN) ---
