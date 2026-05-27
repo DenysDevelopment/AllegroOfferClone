@@ -746,7 +746,7 @@ function TemplateMenu({
 				Шаблоны
 			</button>
 			{open && (
-				<div className='absolute right-0 z-20 mt-1 w-72 rounded-md border border-border bg-card shadow-lg'>
+				<div className='absolute right-0 z-20 mt-1 w-60 rounded-md border border-border bg-card shadow-lg'>
 					<button
 						type='button'
 						onClick={handleSave}

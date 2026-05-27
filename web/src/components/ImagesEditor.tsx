@@ -11,9 +11,14 @@ interface Props {
 	onUploadByUrl?: (url: string) => Promise<string>;
 }
 
+type UploadingState =
+	| { kind: 'idle' }
+	| { kind: 'file'; done: number; total: number }
+	| { kind: 'url' };
+
 export function ImagesEditor({ urls, onChange, dirty, onReset, onUploadFile, onUploadByUrl }: Props) {
 	const fileRef = useRef<HTMLInputElement | null>(null);
-	const [uploading, setUploading] = useState<'idle' | 'file' | 'url'>('idle');
+	const [uploading, setUploading] = useState<UploadingState>({ kind: 'idle' });
 	const [error, setError] = useState<string | null>(null);
 	const update = (i: number, value: string) => {
 		const next = urls.slice();
@@ -36,20 +41,36 @@ export function ImagesEditor({ urls, onChange, dirty, onReset, onUploadFile, onU
 	const pickFile = () => fileRef.current?.click();
 
 	const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-		const file = e.target.files?.[0];
-		if (!file || !onUploadFile) return;
+		const files = Array.from(e.target.files ?? []);
+		if (files.length === 0 || !onUploadFile) return;
 		setError(null);
-		setUploading('file');
-		try {
-			const cdnUrl = await onUploadFile(file);
-			if (cdnUrl) onChange([...urls, cdnUrl]);
-		} catch (err) {
-			setError((err as Error).message);
-		} finally {
-			setUploading('idle');
-			// reset so the same file can be re-selected
-			if (fileRef.current) fileRef.current.value = '';
+		const failures: string[] = [];
+		// Sequential upload: Allegro's /sale/images endpoint dislikes parallel
+		// bursts. Accumulate locally and call onChange after each success so
+		// the gallery fills up live as the queue drains.
+		let acc = urls.slice();
+		for (let i = 0; i < files.length; i++) {
+			const f = files[i];
+			setUploading({ kind: 'file', done: i, total: files.length });
+			try {
+				const cdnUrl = await onUploadFile(f);
+				if (cdnUrl) {
+					acc = [...acc, cdnUrl];
+					onChange(acc);
+				}
+			} catch (err) {
+				failures.push(`${f.name}: ${(err as Error).message}`);
+			}
 		}
+		setUploading({ kind: 'idle' });
+		if (failures.length) {
+			setError(
+				`Не удалось загрузить ${failures.length} из ${files.length}:\n` +
+					failures.join('\n'),
+			);
+		}
+		// reset so the same files can be re-selected
+		if (fileRef.current) fileRef.current.value = '';
 	};
 
 	const rehostByUrl = async () => {
@@ -57,14 +78,14 @@ export function ImagesEditor({ urls, onChange, dirty, onReset, onUploadFile, onU
 		const url = window.prompt('URL картинки для перезаливки в Allegro CDN:')?.trim();
 		if (!url) return;
 		setError(null);
-		setUploading('url');
+		setUploading({ kind: 'url' });
 		try {
 			const cdnUrl = await onUploadByUrl(url);
 			if (cdnUrl) onChange([...urls, cdnUrl]);
 		} catch (err) {
 			setError((err as Error).message);
 		} finally {
-			setUploading('idle');
+			setUploading({ kind: 'idle' });
 		}
 	};
 
@@ -96,10 +117,10 @@ export function ImagesEditor({ urls, onChange, dirty, onReset, onUploadFile, onU
 						<button
 							type='button'
 							onClick={rehostByUrl}
-							disabled={uploading !== 'idle'}
+							disabled={uploading.kind !== 'idle'}
 							className='btn btn-ghost h-7 px-2 text-[12px]'
 							title='Перезалить URL в Allegro CDN'>
-							{uploading === 'url' ? '· · ·' : '+ URL'}
+							{uploading.kind === 'url' ? '· · ·' : '+ URL'}
 						</button>
 					)}
 					{onUploadFile && (
@@ -107,14 +128,17 @@ export function ImagesEditor({ urls, onChange, dirty, onReset, onUploadFile, onU
 							<button
 								type='button'
 								onClick={pickFile}
-								disabled={uploading !== 'idle'}
+								disabled={uploading.kind !== 'idle'}
 								className='btn btn-ghost h-7 px-2 text-[12px]'
-								title='Загрузить файл с диска'>
-								{uploading === 'file' ? '· · ·' : '+ файл'}
+								title='Загрузить файлы с диска (можно несколько)'>
+								{uploading.kind === 'file'
+									? `${uploading.done}/${uploading.total} · · ·`
+									: '+ файлы'}
 							</button>
 							<input
 								ref={fileRef}
 								type='file'
+								multiple
 								accept='image/jpeg,image/png,image/webp'
 								className='hidden'
 								onChange={handleFile}
@@ -131,7 +155,7 @@ export function ImagesEditor({ urls, onChange, dirty, onReset, onUploadFile, onU
 			</header>
 			{error && (
 				<div className='px-4 pt-2'>
-					<div className='text-[12px] text-bad border border-bad/30 bg-badTint rounded-md px-2 py-1.5'>
+					<div className='text-[12px] text-bad border border-bad/30 bg-badTint rounded-md px-2 py-1.5 whitespace-pre-line'>
 						{error}
 					</div>
 				</div>
