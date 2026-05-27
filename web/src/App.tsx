@@ -687,7 +687,16 @@ export default function App() {
 }
 
 function Page({ children }: { children: React.ReactNode }) {
-	return <div className='min-h-screen bg-app'>{children}</div>;
+	return (
+		<div className='min-h-screen bg-app flex flex-col'>
+			<div className='flex-1'>{children}</div>
+			<footer
+				className='py-2 text-center text-[10px] font-mono text-ink-faint select-none'
+				title={`build ${__BUILD_SHA__} at ${__BUILD_TIME__}`}>
+				build {__BUILD_SHA__} · {new Date(__BUILD_TIME__).toLocaleString()}
+			</footer>
+		</div>
+	);
 }
 
 function CatalogLookup({

@@ -856,6 +856,7 @@ async function reuploadDescriptionImages(
 	if (!desc?.sections?.length) return;
 	let ok = 0;
 	let fail = 0;
+	let same = 0;
 	for (const s of desc.sections) {
 		for (const it of s.items) {
 			if (it.type !== 'IMAGE') continue;
@@ -863,8 +864,17 @@ async function reuploadDescriptionImages(
 			if (!url) continue;
 			try {
 				const r = await client.uploadImageByUrl(url);
-				it.url = r.location;
+				const newUrl = r.location;
+				const unchanged = newUrl === url;
+				if (unchanged) same++;
+				it.url = newUrl;
 				ok++;
+				steps.push({
+					level: unchanged ? 'warn' : 'info',
+					message:
+						`desc-img re-upload: ${shortenUrl(url)} → ${shortenUrl(newUrl)}` +
+						(unchanged ? ' (Allegro dedup — same URL)' : ''),
+				});
 			} catch (err) {
 				fail++;
 				steps.push({
@@ -876,12 +886,18 @@ async function reuploadDescriptionImages(
 	}
 	if (ok > 0 || fail > 0) {
 		steps.push({
-			level: 'info',
+			level: same > 0 ? 'warn' : 'info',
 			message:
 				`Описательные картинки перезалиты: ${ok}` +
+				(same > 0 ? ` (из них ${same} вернулись с тем же URL — dedup)` : '') +
 				(fail > 0 ? ` (не удалось: ${fail})` : ''),
 		});
 	}
+}
+
+function shortenUrl(u: string): string {
+	const m = u.match(/^https?:\/\/[^/]+\/(?:original|s?\d+x?\d*)?\/?(.{0,40}).*$/);
+	return m ? `…/${m[1]}` : u.length > 60 ? `${u.slice(0, 60)}…` : u;
 }
 
 /**
