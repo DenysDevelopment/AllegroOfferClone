@@ -49,7 +49,7 @@ export function PhotoPicker({
 				{label}
 			</button>
 			{open && photoUrls.length > 0 && (
-				<div className='absolute z-20 mt-1 max-h-72 w-56 overflow-auto rounded-md border border-border bg-card shadow-lg p-1'>
+				<div className='absolute right-0 z-20 mt-1 max-h-72 w-56 overflow-auto rounded-md border border-border bg-card shadow-lg p-1'>
 					<div className='grid grid-cols-3 gap-1'>
 						{photoUrls.map((url, i) => (
 							<button

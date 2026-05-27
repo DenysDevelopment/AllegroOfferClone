@@ -473,36 +473,51 @@ function RichTextarea({
 		emit();
 	};
 
-	const insertVariable = (key: string) => {
+	/**
+	 * Insert a chip-span + trailing NBSP at the current caret position.
+	 * Uses Range API directly (not execCommand 'insertHTML', which is
+	 * deprecated and is known to strip attributes from inserted nodes
+	 * inside `<li>` and after formatting commands — that's how a chip
+	 * could end up as plain label text).
+	 */
+	const insertChipAtCursor = (key: string) => {
 		const el = ref.current;
 		if (!el) return;
 		el.focus();
-		try {
-			document.execCommand(
-				'insertHTML',
-				false,
-				chipHtml(key, varMap, photoUrls) + '&nbsp;',
-			);
-		} catch {
-			/* ignored */
+		const tmp = document.createElement('div');
+		tmp.innerHTML = chipHtml(key, varMap, photoUrls);
+		const chipNode = tmp.firstElementChild as HTMLElement | null;
+		if (!chipNode) return;
+		const space = document.createTextNode(' ');
+		const sel = document.getSelection();
+		let range: Range;
+		if (sel && sel.rangeCount > 0 && el.contains(sel.anchorNode)) {
+			range = sel.getRangeAt(0);
+			range.deleteContents();
+		} else {
+			range = document.createRange();
+			range.selectNodeContents(el);
+			range.collapse(false);
 		}
+		// Insert space first, then chip BEFORE it — final order: chip, space.
+		range.insertNode(space);
+		range.insertNode(chipNode);
+		// Caret after the trailing space.
+		const after = document.createRange();
+		after.setStartAfter(space);
+		after.collapse(true);
+		sel?.removeAllRanges();
+		sel?.addRange(after);
+	};
+
+	const insertVariable = (key: string) => {
+		insertChipAtCursor(key);
 		setVarMenuOpen(false);
 		emit();
 	};
 
 	const insertPhoto = (n: number) => {
-		const el = ref.current;
-		if (!el) return;
-		el.focus();
-		try {
-			document.execCommand(
-				'insertHTML',
-				false,
-				chipHtml(`photo:${n}`, varMap, photoUrls) + '&nbsp;',
-			);
-		} catch {
-			/* ignored */
-		}
+		insertChipAtCursor(`photo:${n}`);
 		setPhotoMenuOpen(false);
 		emit();
 	};

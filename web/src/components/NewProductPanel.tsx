@@ -317,10 +317,11 @@ export function NewProductPanel({
 		[images],
 	);
 
-	// Description variables resolve from this panel's parameter form.
+	// Description variables resolve from this panel's parameter form
+	// plus the product `name` as the built-in `@title`.
 	const varMap = useMemo(
-		() => buildCategoryVarMap(params, values),
-		[params, values],
+		() => buildCategoryVarMap(params, values, { title: name }),
+		[params, values, name],
 	);
 
 	const setParamValue = (

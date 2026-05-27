@@ -77,6 +77,7 @@ export function buildVarMap(input: VarMapInput): Map<string, string> {
 export function buildCategoryVarMap(
   params: CategoryParameter[],
   values: Record<string, ProductParameterValue>,
+  opts?: { title?: string; price?: string },
 ): Map<string, string> {
   const map = new Map<string, string>();
   for (const p of params) {
@@ -97,6 +98,8 @@ export function buildCategoryVarMap(
     if (!resolved) continue;
     map.set(name, p.unit ? `${resolved} ${p.unit}` : resolved);
   }
+  if (opts?.title) map.set('@title', opts.title);
+  if (opts?.price) map.set('@price', opts.price);
   return map;
 }
 

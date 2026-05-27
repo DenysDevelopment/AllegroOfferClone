@@ -240,6 +240,18 @@ describe('buildCategoryVarMap', () => {
     );
     expect(map.get('Złącza')).toBe('USB-C, HDMI');
   });
+
+  it('adds @title and @price built-ins when provided in opts', () => {
+    const map = buildCategoryVarMap([], {}, { title: 'Laptop X', price: '999' });
+    expect(map.get('@title')).toBe('Laptop X');
+    expect(map.get('@price')).toBe('999');
+  });
+
+  it('skips empty @title / @price', () => {
+    const map = buildCategoryVarMap([], {}, { title: '', price: '' });
+    expect(map.has('@title')).toBe(false);
+    expect(map.has('@price')).toBe(false);
+  });
 });
 
 describe('chipHtml — photo variant', () => {
