@@ -901,6 +901,96 @@ function shortenUrl(u: string): string {
 }
 
 /**
+ * When the offer is bound to a catalog product (productSet[0].product.id),
+ * Allegro pulls the catalog product's description and validates ITS IMAGE
+ * URLs against the offer's `images` gallery — exactly like for offer-level
+ * descriptions. Fetch the catalog product and append every URL referenced by
+ * its description / images that's not already in `body.images`. Mutates in
+ * place; non-fatal on fetch failure.
+ */
+async function syncCatalogProductImagesToGallery(
+	client: AllegroClient,
+	body: Record<string, unknown>,
+	steps: CloneStep[],
+): Promise<void> {
+	const productSet = (
+		body as { productSet?: Array<{ product?: { id?: string } }> }
+	).productSet;
+	const productId = productSet?.[0]?.product?.id;
+	if (!productId) return;
+
+	let product: Awaited<ReturnType<typeof client.getProduct>>;
+	try {
+		product = await client.getProduct(productId);
+	} catch (err) {
+		steps.push({
+			level: 'warn',
+			message: `Не удалось получить карточку товара ${productId}: ${(err as Error).message}`,
+		});
+		return;
+	}
+
+	const urls = new Set<string>();
+	const productImages = (product as { images?: unknown }).images;
+	if (Array.isArray(productImages)) {
+		for (const img of productImages) {
+			const url =
+				typeof img === 'string'
+					? img
+					: typeof img === 'object' && img !== null
+						? (img as { url?: string }).url
+						: undefined;
+			if (url) urls.add(url.trim());
+		}
+	}
+	const productDesc = (product as { description?: unknown }).description;
+	if (productDesc && typeof productDesc === 'object') {
+		const sections =
+			(productDesc as { sections?: unknown }).sections ??
+			(productDesc as { standardized?: { sections?: unknown } }).standardized
+				?.sections;
+		if (Array.isArray(sections)) {
+			for (const s of sections) {
+				const items = (s as { items?: unknown }).items;
+				if (!Array.isArray(items)) continue;
+				for (const it of items) {
+					if ((it as { type?: string }).type !== 'IMAGE') continue;
+					const url = (it as { url?: string }).url?.trim();
+					if (url) urls.add(url);
+				}
+			}
+		}
+	}
+
+	if (urls.size === 0) {
+		steps.push({
+			level: 'info',
+			message: `Карточка товара ${productId}: нет картинок к синхронизации`,
+		});
+		return;
+	}
+
+	const bodyImages =
+		(body as { images?: { url: string }[] }).images?.slice() ?? [];
+	const gallery = new Set(
+		bodyImages.map(i => i.url).filter((u): u is string => Boolean(u)),
+	);
+	let added = 0;
+	for (const url of urls) {
+		if (!gallery.has(url)) {
+			bodyImages.push({ url });
+			gallery.add(url);
+			added++;
+		}
+	}
+	(body as { images?: { url: string }[] }).images = bodyImages;
+	steps.push({
+		level: 'info',
+		message: `Карточка товара ${productId}: ${urls.size} картинок, добавлено в галерею ${added}`,
+	});
+}
+
+/**
  * Allegro requires every URL inside `description.sections[*].items[type=IMAGE]`
  * to also appear in the offer's top-level `images` array. Without this the
  * service returns `ConstraintViolationException.DescriptionImageNotAttached`
@@ -1003,6 +1093,10 @@ export async function cloneOffer(
 		return result;
 	}
 
+	// When the offer is bound to a catalog product (productSet[0].product.id is
+	// set), Allegro uses the catalog product's description — its IMAGE URLs
+	// must also be in `images`. Fetch the catalog product and sync them.
+	await syncCatalogProductImagesToGallery(client, body, steps);
 	// Re-upload description IMAGE URLs through this account's upload endpoint so
 	// they're freshly attached to this account — covers cross-account clones
 	// where source URLs were uploaded under the source's session.
