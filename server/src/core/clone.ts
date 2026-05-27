@@ -1042,12 +1042,38 @@ function capImagesAndPruneDescription(
 ): void {
 	const bodyImages = (body as { images?: { url: string }[] }).images;
 	if (!bodyImages || bodyImages.length <= ALLEGRO_MAX_IMAGES) return;
-	const dropped = bodyImages.length - ALLEGRO_MAX_IMAGES;
-	const kept = bodyImages.slice(0, ALLEGRO_MAX_IMAGES);
+
+	// Description IMAGE URLs are "must keep" — Allegro rejects the offer if
+	// any description URL isn't in `images`. Gallery (override) URLs are
+	// "nice to have" — we drop the tail of them to fit the 16-image cap,
+	// preserving the original order so the gallery thumbnail stays put.
+	const desc = (body as { description?: DescriptionOverride }).description;
+	const descUrls = new Set<string>();
+	if (desc?.sections?.length) {
+		for (const s of desc.sections) {
+			for (const it of s.items) {
+				if (it.type === 'IMAGE' && it.url) descUrls.add(it.url);
+			}
+		}
+	}
+	const mustKeepCount = bodyImages.filter(img => descUrls.has(img.url)).length;
+	const slotsForOptional = Math.max(0, ALLEGRO_MAX_IMAGES - mustKeepCount);
+
+	const kept: { url: string }[] = [];
+	let optionalSeen = 0;
+	for (const img of bodyImages) {
+		if (descUrls.has(img.url)) {
+			if (kept.length < ALLEGRO_MAX_IMAGES) kept.push(img);
+		} else if (optionalSeen < slotsForOptional) {
+			kept.push(img);
+			optionalSeen++;
+		}
+	}
 	const keptUrls = new Set(kept.map(i => i.url).filter(Boolean));
 	(body as { images?: { url: string }[] }).images = kept;
 
-	const desc = (body as { description?: DescriptionOverride }).description;
+	// Defensive: drop description IMAGE-items whose URLs didn't make it
+	// (only possible when descUrls > 16 itself).
 	let prunedItems = 0;
 	if (desc?.sections?.length) {
 		const nextSections: typeof desc.sections = [];
@@ -1063,14 +1089,51 @@ function capImagesAndPruneDescription(
 		desc.sections = nextSections;
 	}
 
+	const droppedOptional = bodyImages.length - kept.length - prunedItems;
 	steps.push({
 		level: 'warn',
 		message:
-			`Галерея обрезана до ${ALLEGRO_MAX_IMAGES} (было ${ALLEGRO_MAX_IMAGES + dropped})` +
+			`Галерея ужата до ${ALLEGRO_MAX_IMAGES} (было ${bodyImages.length})` +
+			`; убрано из хвоста галереи: ${droppedOptional}` +
 			(prunedItems > 0
-				? `; из описания убрано ${prunedItems} картинок которые не поместились`
-				: ''),
+				? `; из описания убрано: ${prunedItems}`
+				: '; описательные картинки сохранены полностью'),
 	});
+}
+
+/**
+ * Allegro's POST /sale/product-offers rejects unknown properties with
+ * `UnknownJSONProperty`. Source offers (returned by GET) include read-only
+ * sub-fields that GET sets but POST doesn't accept — most notably
+ * `additionalMarketplaces.<marketplace>.publication`. Strip them in place.
+ */
+function stripReadOnlyPostFields(
+	body: Record<string, unknown>,
+	steps: CloneStep[],
+): void {
+	const am = (
+		body as {
+			additionalMarketplaces?: Record<string, Record<string, unknown>>;
+		}
+	).additionalMarketplaces;
+	if (!am || typeof am !== 'object') return;
+	let removed = 0;
+	for (const marketplace of Object.values(am)) {
+		if (
+			marketplace &&
+			typeof marketplace === 'object' &&
+			'publication' in marketplace
+		) {
+			delete marketplace.publication;
+			removed++;
+		}
+	}
+	if (removed > 0) {
+		steps.push({
+			level: 'info',
+			message: `Из additionalMarketplaces удалены read-only поля publication: ${removed}`,
+		});
+	}
 }
 
 /**
@@ -1163,6 +1226,10 @@ export async function cloneOffer(
 	// 2 items. Source offers (or appended templates) can produce longer sections;
 	// split them into ≤2-item chunks, preserving order.
 	splitDescriptionSectionsToMaxTwoItems(body, steps);
+	// Strip read-only fields that creep in from source offer — Allegro rejects
+	// them with `UnknownJSONProperty` on POST (e.g.
+	// `additionalMarketplaces.<marketplace>.publication`).
+	stripReadOnlyPostFields(body, steps);
 
 	steps.push({ level: 'info', message: 'POST /sale/product-offers' });
 	try {
