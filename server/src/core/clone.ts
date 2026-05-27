@@ -901,6 +901,45 @@ function shortenUrl(u: string): string {
 }
 
 /**
+ * Allegro requires every URL inside `description.sections[*].items[type=IMAGE]`
+ * to also appear in the offer's top-level `images` array. Without this the
+ * service returns `ConstraintViolationException.DescriptionImageNotAttached`
+ * (in Polish: "Opis zawiera niezałączone zdjęcie"). Append any description
+ * image URL that's missing from the gallery; mutates body in place.
+ */
+function syncDescriptionImagesToGallery(
+	body: Record<string, unknown>,
+	steps: CloneStep[],
+): void {
+	const desc = (body as { description?: DescriptionOverride }).description;
+	if (!desc?.sections?.length) return;
+	const bodyImages =
+		(body as { images?: { url: string }[] }).images?.slice() ?? [];
+	const gallery = new Set(
+		bodyImages.map(i => i.url).filter((u): u is string => Boolean(u)),
+	);
+	const added: string[] = [];
+	for (const s of desc.sections) {
+		for (const it of s.items) {
+			if (it.type !== 'IMAGE') continue;
+			const url = it.url?.trim();
+			if (!url) continue;
+			if (!gallery.has(url)) {
+				bodyImages.push({ url });
+				gallery.add(url);
+				added.push(url);
+			}
+		}
+	}
+	if (added.length === 0) return;
+	(body as { images?: { url: string }[] }).images = bodyImages;
+	steps.push({
+		level: 'info',
+		message: `Описательные картинки добавлены в галерею: ${added.length} (требование Allegro — описательные URL должны быть в images)`,
+	});
+}
+
+/**
  * Allegro's `standardized.sections[*].items` must hold 1 or 2 items. Split any
  * larger section into multiple sections of at most 2 items, preserving order.
  * Mutates body in place.
@@ -965,10 +1004,15 @@ export async function cloneOffer(
 	}
 
 	// Re-upload description IMAGE URLs through this account's upload endpoint so
-	// they're "attached" to this new offer — otherwise Allegro rejects with
-	// ConstraintViolationException.DescriptionImageNotAttached, regardless of
-	// whether the description came from source-as-is or an operator override.
+	// they're freshly attached to this account — covers cross-account clones
+	// where source URLs were uploaded under the source's session.
 	await reuploadDescriptionImages(client, body, steps);
+	// Allegro rule (per developer.allegro.pl): each URL appearing in
+	// `description.sections[*].items[type=IMAGE]` MUST also appear in `images`
+	// (the offer gallery). Otherwise Allegro returns
+	// `ConstraintViolationException.DescriptionImageNotAttached`, even if the
+	// URL was freshly uploaded. Sync description URLs into `images`.
+	syncDescriptionImagesToGallery(body, steps);
 	// Allegro requires each `description.sections[*].items` array to hold AT MOST
 	// 2 items. Source offers (or appended templates) can produce longer sections;
 	// split them into ≤2-item chunks, preserving order.
