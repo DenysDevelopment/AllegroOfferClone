@@ -839,6 +839,51 @@ export function stripReadonlyFields(o: AllegroOffer): Record<string, unknown> {
 	return out;
 }
 
+/**
+ * Re-upload every IMAGE-item URL inside the description through the target
+ * account's `POST /sale/images?url=...` so the resulting URLs are "attached"
+ * to the new offer being created. Allegro otherwise rejects the create with
+ * `ConstraintViolationException.DescriptionImageNotAttached`. Mutates body
+ * in place. Failures are reported as warn steps but don't abort the clone
+ * (the create call will surface the same problem with a clearer message).
+ */
+async function reuploadDescriptionImages(
+	client: AllegroClient,
+	body: Record<string, unknown>,
+	steps: CloneStep[],
+): Promise<void> {
+	const desc = (body as { description?: DescriptionOverride }).description;
+	if (!desc?.sections?.length) return;
+	let ok = 0;
+	let fail = 0;
+	for (const s of desc.sections) {
+		for (const it of s.items) {
+			if (it.type !== 'IMAGE') continue;
+			const url = it.url?.trim();
+			if (!url) continue;
+			try {
+				const r = await client.uploadImageByUrl(url);
+				it.url = r.location;
+				ok++;
+			} catch (err) {
+				fail++;
+				steps.push({
+					level: 'warn',
+					message: `Не удалось перезалить картинку описания (${url}): ${(err as Error).message}`,
+				});
+			}
+		}
+	}
+	if (ok > 0 || fail > 0) {
+		steps.push({
+			level: 'info',
+			message:
+				`Описательные картинки перезалиты: ${ok}` +
+				(fail > 0 ? ` (не удалось: ${fail})` : ''),
+		});
+	}
+}
+
 export async function cloneOffer(
 	client: AllegroClient,
 	options: CloneOptions,
@@ -870,6 +915,12 @@ export async function cloneOffer(
 		result.outcome = { kind: 'dry-run' };
 		return result;
 	}
+
+	// Re-upload description IMAGE URLs through this account's upload endpoint so
+	// they're "attached" to this new offer — otherwise Allegro rejects with
+	// ConstraintViolationException.DescriptionImageNotAttached, regardless of
+	// whether the description came from source-as-is or an operator override.
+	await reuploadDescriptionImages(client, body, steps);
 
 	steps.push({ level: 'info', message: 'POST /sale/product-offers' });
 	try {
