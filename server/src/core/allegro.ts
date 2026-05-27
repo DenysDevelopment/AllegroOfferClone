@@ -438,7 +438,10 @@ export class AllegroClient {
     const dl = await axios.get<ArrayBuffer>(url, {
       responseType: 'arraybuffer',
       timeout: 30_000,
-      maxContentLength: 12 * 1024 * 1024,
+      // Allegro's `original` size can exceed 12MB on older offers; 50MB matches
+      // the upload-side limit and is enough for Allegro's max (~5000×5000 JPEG).
+      maxContentLength: 50 * 1024 * 1024,
+      maxBodyLength: 50 * 1024 * 1024,
       validateStatus: () => true,
     });
     if (dl.status >= 400) {

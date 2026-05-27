@@ -884,6 +884,38 @@ async function reuploadDescriptionImages(
 	}
 }
 
+/**
+ * Allegro's `standardized.sections[*].items` must hold 1 or 2 items. Split any
+ * larger section into multiple sections of at most 2 items, preserving order.
+ * Mutates body in place.
+ */
+function splitDescriptionSectionsToMaxTwoItems(
+	body: Record<string, unknown>,
+	steps: CloneStep[],
+): void {
+	const desc = (body as { description?: DescriptionOverride }).description;
+	if (!desc?.sections?.length) return;
+	let splits = 0;
+	const next: typeof desc.sections = [];
+	for (const s of desc.sections) {
+		if (s.items.length <= 2) {
+			next.push(s);
+			continue;
+		}
+		splits++;
+		for (let i = 0; i < s.items.length; i += 2) {
+			next.push({ items: s.items.slice(i, i + 2) });
+		}
+	}
+	if (splits > 0) {
+		desc.sections = next;
+		steps.push({
+			level: 'info',
+			message: `Описание разрезано: ${splits} секц. с >2 элементами → ${next.length} секц. с ≤2 элементами`,
+		});
+	}
+}
+
 export async function cloneOffer(
 	client: AllegroClient,
 	options: CloneOptions,
@@ -921,6 +953,10 @@ export async function cloneOffer(
 	// ConstraintViolationException.DescriptionImageNotAttached, regardless of
 	// whether the description came from source-as-is or an operator override.
 	await reuploadDescriptionImages(client, body, steps);
+	// Allegro requires each `description.sections[*].items` array to hold AT MOST
+	// 2 items. Source offers (or appended templates) can produce longer sections;
+	// split them into ≤2-item chunks, preserving order.
+	splitDescriptionSectionsToMaxTwoItems(body, steps);
 
 	steps.push({ level: 'info', message: 'POST /sale/product-offers' });
 	try {
