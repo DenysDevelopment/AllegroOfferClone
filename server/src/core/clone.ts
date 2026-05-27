@@ -1030,6 +1030,50 @@ export function syncDescriptionImagesToGallery(
 }
 
 /**
+ * Allegro caps `body.images` at 16 per offer. If we exceed the cap (e.g. user
+ * override 16 + description IMAGE items), trim to 16 — and DROP any description
+ * IMAGE-items whose URLs didn't make the cut (otherwise Allegro would reject
+ * with DescriptionImageNotAttached). Mutates body in place.
+ */
+const ALLEGRO_MAX_IMAGES = 16;
+function capImagesAndPruneDescription(
+	body: Record<string, unknown>,
+	steps: CloneStep[],
+): void {
+	const bodyImages = (body as { images?: { url: string }[] }).images;
+	if (!bodyImages || bodyImages.length <= ALLEGRO_MAX_IMAGES) return;
+	const dropped = bodyImages.length - ALLEGRO_MAX_IMAGES;
+	const kept = bodyImages.slice(0, ALLEGRO_MAX_IMAGES);
+	const keptUrls = new Set(kept.map(i => i.url).filter(Boolean));
+	(body as { images?: { url: string }[] }).images = kept;
+
+	const desc = (body as { description?: DescriptionOverride }).description;
+	let prunedItems = 0;
+	if (desc?.sections?.length) {
+		const nextSections: typeof desc.sections = [];
+		for (const s of desc.sections) {
+			const items = s.items.filter(it => {
+				if (it.type !== 'IMAGE') return true;
+				if (keptUrls.has(it.url)) return true;
+				prunedItems++;
+				return false;
+			});
+			if (items.length > 0) nextSections.push({ items });
+		}
+		desc.sections = nextSections;
+	}
+
+	steps.push({
+		level: 'warn',
+		message:
+			`Галерея обрезана до ${ALLEGRO_MAX_IMAGES} (было ${ALLEGRO_MAX_IMAGES + dropped})` +
+			(prunedItems > 0
+				? `; из описания убрано ${prunedItems} картинок которые не поместились`
+				: ''),
+	});
+}
+
+/**
  * Allegro's `standardized.sections[*].items` must hold 1 or 2 items. Split any
  * larger section into multiple sections of at most 2 items, preserving order.
  * Mutates body in place.
@@ -1093,10 +1137,14 @@ export async function cloneOffer(
 		return result;
 	}
 
-	// When the offer is bound to a catalog product (productSet[0].product.id is
-	// set), Allegro uses the catalog product's description — its IMAGE URLs
-	// must also be in `images`. Fetch the catalog product and sync them.
-	await syncCatalogProductImagesToGallery(client, body, steps);
+	// When the offer is bound to a catalog product AND body.description is NOT
+	// overridden, Allegro uses the catalog's description — its IMAGE URLs must
+	// then be in `images`. When body.description IS overridden, Allegro uses
+	// our description, so catalog images are not validated and syncing them
+	// just wastes precious image slots (Allegro caps `images` at 16).
+	if (!(body as { description?: unknown }).description) {
+		await syncCatalogProductImagesToGallery(client, body, steps);
+	}
 	// Re-upload description IMAGE URLs through this account's upload endpoint so
 	// they're freshly attached to this account — covers cross-account clones
 	// where source URLs were uploaded under the source's session.
@@ -1107,6 +1155,10 @@ export async function cloneOffer(
 	// `ConstraintViolationException.DescriptionImageNotAttached`, even if the
 	// URL was freshly uploaded. Sync description URLs into `images`.
 	syncDescriptionImagesToGallery(body, steps);
+	// Allegro caps `images` at 16 per offer. Trim if needed, and remove any
+	// description IMAGE-items whose URLs got dropped — those would otherwise
+	// trigger DescriptionImageNotAttached again.
+	capImagesAndPruneDescription(body, steps);
 	// Allegro requires each `description.sections[*].items` array to hold AT MOST
 	// 2 items. Source offers (or appended templates) can produce longer sections;
 	// split them into ≤2-item chunks, preserving order.
