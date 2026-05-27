@@ -5,10 +5,12 @@ import { z } from 'zod';
 import type { AllegroClient } from '../core/allegro.js';
 import {
   buildCloneBody,
+  capImagesAndPruneDescription,
   cloneOffer,
   splitDescriptionSectionsToMaxTwoItems,
   syncDescriptionImagesToGallery,
 } from '../core/clone.js';
+import { validateAllegroBody } from '../core/body-validate.js';
 import type { AccountRegistry } from '../core/registry.js';
 import { TemplateStore } from '../core/templates.js';
 import type { AllegroOffer } from '../core/types.js';
@@ -600,7 +602,19 @@ export function apiRouter(registry: AccountRegistry, dataDir: string): Router {
     //  - description IMAGE URLs must also live in `images` (Allegro rule)
     //  - each section's items array must hold ≤ 2 items
     syncDescriptionImagesToGallery(body, []);
+    capImagesAndPruneDescription(body, []);
     splitDescriptionSectionsToMaxTwoItems(body, []);
+    // Pre-flight validation: catch any rule we already know so we don't burn
+    // an Allegro request on a body we can already tell is bad.
+    const issues = validateAllegroBody(body, 'product');
+    const errors = issues.filter(i => i.level === 'error');
+    if (errors.length > 0) {
+      return res.status(422).json({
+        error: 'PREFLIGHT_VALIDATION',
+        message: `Не отправлено в Allegro — найдено ${errors.length} проблем(ы) при предварительной валидации`,
+        issues: errors,
+      });
+    }
     try {
       const result = await req.allegro!.proposeProduct(body);
       if (result.status === 409) {
@@ -627,6 +641,7 @@ export function apiRouter(registry: AccountRegistry, dataDir: string): Router {
       images: images.map((url) => ({ url })),
     };
     syncDescriptionImagesToGallery(body, []);
+    capImagesAndPruneDescription(body, []);
     splitDescriptionSectionsToMaxTwoItems(body, []);
     res.json({ body });
   });

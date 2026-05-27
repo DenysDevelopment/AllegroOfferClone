@@ -1,4 +1,5 @@
 import type { AllegroClient } from './allegro.js';
+import { validateAllegroBody, type ValidationIssue } from './body-validate.js';
 import type {
 	AllegroOffer,
 	AllegroParameter,
@@ -1036,7 +1037,7 @@ export function syncDescriptionImagesToGallery(
  * with DescriptionImageNotAttached). Mutates body in place.
  */
 const ALLEGRO_MAX_IMAGES = 16;
-function capImagesAndPruneDescription(
+export function capImagesAndPruneDescription(
 	body: Record<string, unknown>,
 	steps: CloneStep[],
 ): void {
@@ -1098,6 +1099,103 @@ function capImagesAndPruneDescription(
 			(prunedItems > 0
 				? `; из описания убрано: ${prunedItems}`
 				: '; описательные картинки сохранены полностью'),
+	});
+}
+
+/**
+ * Allegro accepts `images` as either `string[]` OR `{url: string}[]` but NOT
+ * a mix of the two — a heterogeneous array breaks Jackson deserialization
+ * (`JsonMappingException` at the first index where the shape changes). GET
+ * returns strings and our helpers push `{url}` objects, so we normalize
+ * everything to `{url}` here, in place.
+ */
+function normalizeImagesShape(
+	body: Record<string, unknown>,
+	steps: CloneStep[],
+): void {
+	const imgs = (body as { images?: unknown }).images;
+	if (!Array.isArray(imgs)) return;
+	let convertedStrings = 0;
+	const out: { url: string }[] = [];
+	for (const it of imgs) {
+		if (typeof it === 'string') {
+			out.push({ url: it });
+			convertedStrings++;
+		} else if (
+			it &&
+			typeof it === 'object' &&
+			typeof (it as { url?: unknown }).url === 'string'
+		) {
+			out.push({ url: (it as { url: string }).url });
+		}
+	}
+	(body as { images: { url: string }[] }).images = out;
+	if (convertedStrings > 0) {
+		steps.push({
+			level: 'info',
+			message: `images нормализованы: ${convertedStrings} строковых URL → {url}-объекты (Allegro не принимает смешанный массив)`,
+		});
+	}
+}
+
+/**
+ * Final image-shape pass: Allegro's POST /sale/product-offers schema accepts
+ * `images` as a flat array of URL strings (`string[]`) — not as
+ * `{url: string}[]`, which is what /sale/products accepts. Mixed shapes or
+ * pure `{url}[]` here cause `JsonMappingException` at images[0]. Internally
+ * helpers prefer `{url}` objects so they can dedupe and reason about entries,
+ * so we convert back to strings just before the create call.
+ */
+function imagesObjectsToStrings(
+	body: Record<string, unknown>,
+	steps: CloneStep[],
+): void {
+	const imgs = (body as { images?: unknown }).images;
+	if (!Array.isArray(imgs)) return;
+	const out: string[] = [];
+	for (const it of imgs) {
+		if (typeof it === 'string') out.push(it);
+		else if (
+			it &&
+			typeof it === 'object' &&
+			typeof (it as { url?: unknown }).url === 'string'
+		) {
+			out.push((it as { url: string }).url);
+		}
+	}
+	(body as { images: string[] }).images = out;
+	steps.push({
+		level: 'info',
+		message: `images приведены к string[] (Allegro offer-POST требует именно эту форму): ${out.length} URL`,
+	});
+}
+
+/**
+ * Diagnostic: log each body.images entry's keys + full URL so we can compare
+ * "good" vs "bad" entries from Allegro's 422 responses (e.g. `images[9]`).
+ */
+function logImagesShape(
+	body: Record<string, unknown>,
+	steps: CloneStep[],
+): void {
+	const imgs = (body as { images?: unknown[] }).images;
+	if (!Array.isArray(imgs)) return;
+	const summary: string[] = [];
+	for (let i = 0; i < imgs.length; i++) {
+		const it = imgs[i];
+		if (typeof it !== 'object' || it === null) {
+			summary.push(`#${i} ${typeof it} ${JSON.stringify(it)}`);
+		} else {
+			const keys = Object.keys(it).sort().join(',');
+			const url = (it as { url?: unknown }).url;
+			summary.push(
+				`#${i} keys=[${keys}] url=${typeof url === 'string' ? url : JSON.stringify(url)}`,
+			);
+		}
+	}
+	steps.push({
+		level: 'info',
+		message: `images shape (${imgs.length}):\n${summary.join('\n')}`,
 	});
 }
 
@@ -1200,6 +1298,11 @@ export async function cloneOffer(
 		return result;
 	}
 
+	// Normalize body.images shape: Allegro returns `string[]` from GET but our
+	// helpers push `{url}` objects. A mixed array (some strings + some objects)
+	// causes Allegro POST to return `JsonMappingException` at the first index
+	// where the shape changes. Convert everything to `{url}` up front.
+	normalizeImagesShape(body, steps);
 	// When the offer is bound to a catalog product AND body.description is NOT
 	// overridden, Allegro uses the catalog's description — its IMAGE URLs must
 	// then be in `images`. When body.description IS overridden, Allegro uses
@@ -1230,6 +1333,33 @@ export async function cloneOffer(
 	// them with `UnknownJSONProperty` on POST (e.g.
 	// `additionalMarketplaces.<marketplace>.publication`).
 	stripReadOnlyPostFields(body, steps);
+	// Allegro POST /sale/product-offers expects `images` as `string[]`
+	// (the GET-shape), NOT `{url: string}[]` (the one /sale/products accepts).
+	// Convert back to strings just before send.
+	imagesObjectsToStrings(body, steps);
+	// Final diagnostic: log the shape of body.images so we can compare what
+	// Allegro accepts vs. rejects.
+	logImagesShape(body, steps);
+
+	// Pre-flight validation: catch any rule we already know so we don't burn
+	// an Allegro request on a body we can already tell is bad.
+	const issues = validateAllegroBody(body, 'offer');
+	if (issues.length > 0) {
+		const errors = issues.filter(i => i.level === 'error');
+		for (const i of issues) {
+			steps.push({
+				level: i.level,
+				message: `validation: ${i.path ?? '?'}: ${i.message}`,
+			});
+		}
+		if (errors.length > 0) {
+			result.error = {
+				message: `Не отправлено в Allegro — найдено ${errors.length} проблем(ы) при предварительной валидации (см. шаги).`,
+				body: { validationIssues: errors satisfies ValidationIssue[] },
+			};
+			return result;
+		}
+	}
 
 	steps.push({ level: 'info', message: 'POST /sale/product-offers' });
 	try {
