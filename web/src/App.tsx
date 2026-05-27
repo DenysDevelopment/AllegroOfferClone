@@ -13,6 +13,7 @@ import {
 import { AccountSwitcher } from './components/AccountSwitcher';
 import { ConnectGate } from './components/ConnectGate';
 import { DescriptionEditor } from './components/DescriptionEditor';
+import { finalizeDescriptionForAllegro } from './components/descriptionSanitize';
 import {
 	buildVarMap,
 	expandPhotoChips,
@@ -442,7 +443,21 @@ export default function App() {
 		setOutcome(undefined);
 		setErrorBox(null);
 		try {
-			const r = await api.clone(buildPayload(false));
+			let payload = buildPayload(false);
+			// Sanitize TEXT (drop disallowed tags, <strong>→<b>) and re-upload
+			// IMAGE URLs so Allegro accepts them as attached to this offer.
+			if (payload.descriptionOverride) {
+				const finalDesc = await finalizeDescriptionForAllegro(
+					payload.descriptionOverride,
+					api.uploadImageByUrl,
+				);
+				payload = {
+					...payload,
+					descriptionOverride:
+						finalDesc.sections.length > 0 ? finalDesc : undefined,
+				};
+			}
+			const r = await api.clone(payload);
 			setSteps(r.steps);
 			setOutcome(r.outcome);
 			setErrorBox(r.error ?? null);
