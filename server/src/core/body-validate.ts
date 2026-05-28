@@ -154,6 +154,18 @@ export function validateAllegroBody(
 						path: `description.sections[${si}].items`,
 					});
 				}
+				if (
+					items.length === 2 &&
+					(items[0] as { type?: string }).type === 'TEXT' &&
+					(items[1] as { type?: string }).type === 'TEXT'
+				) {
+					issues.push({
+						level: 'error',
+						message:
+							'section имеет два TEXT-элемента в одной строке — Allegro запрещает (допустимо: текст+фото, фото+текст, два фото)',
+						path: `description.sections[${si}].items`,
+					});
+				}
 				items.forEach((it, ii) => {
 					const type = (it as { type?: string }).type;
 					if (type === 'IMAGE') {
