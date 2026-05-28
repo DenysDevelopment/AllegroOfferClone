@@ -251,7 +251,7 @@ export default function App() {
 			});
 	}, []);
 
-	// Auto-fill name (live-updated as overrides change) unless user has typed.
+	// Auto-fill name from the catalog/offer title unless the user has typed.
 	// Skipped when a catalog target product is bound — name comes from the catalog.
 	useEffect(() => {
 		if (targetProduct) return;
