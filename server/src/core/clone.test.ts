@@ -791,4 +791,16 @@ describe('splitDescriptionSectionsToMaxTwoItems', () => {
       { items: [T('d')] },
     ]);
   });
+
+  it('log message: only [текст+текст] clause when chunked=0, textPairsSplit=1', () => {
+    const steps: import('./clone.js').CloneStep[] = [];
+    const body = { description: { sections: [{ items: [T('a'), T('b')] }] } } as Record<string, unknown>;
+    splitDescriptionSectionsToMaxTwoItems(body, steps);
+    const desc = (body as { description: { sections: Array<{ items: unknown[] }> } }).description;
+    expect(desc.sections).toHaveLength(2);
+    expect(steps).toHaveLength(1);
+    expect(steps[0].level).toBe('info');
+    expect(steps[0].message).toContain('пар [текст+текст] разделено 1');
+    expect(steps[0].message).not.toContain('разрезано 0');
+  });
 });

@@ -1269,13 +1269,14 @@ export function splitDescriptionSectionsToMaxTwoItems(
 	}
 	if (chunked > 0 || textPairsSplit > 0) {
 		desc.sections = next;
+		const clauses: string[] = [];
+		if (chunked > 0)
+			clauses.push(`секц. с >2 элементами разрезано ${chunked}`);
+		if (textPairsSplit > 0)
+			clauses.push(`пар [текст+текст] разделено ${textPairsSplit} (Allegro запрещает два текста в строке)`);
 		steps.push({
 			level: 'info',
-			message:
-				`Описание нормализовано: секц. с >2 элементами разрезано ${chunked}` +
-				(textPairsSplit > 0
-					? `; пар [текст+текст] разделено ${textPairsSplit} (Allegro запрещает два текста в строке)`
-					: ''),
+			message: `Описание нормализовано: ${clauses.join('; ')}`,
 		});
 	}
 }
