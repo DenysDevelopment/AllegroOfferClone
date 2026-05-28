@@ -327,9 +327,10 @@ export async function buildCloneBody(
 		});
 	}
 
-	const newName =
-		options.nameOverride ??
-		rewriteTitle(source.name ?? productName ?? '', oldValues);
+	// Title defaults to the CATALOG product card name (productName), not the
+	// offer's listing title — operator can still type nameOverride. We do NOT
+	// substitute parameter overrides into it (per product decision 2026-05-28).
+	const newName = options.nameOverride ?? productName ?? source.name ?? '';
 	if (newName !== source.name) {
 		steps.push({
 			level: 'info',
@@ -740,19 +741,6 @@ function scoreParameterMatch(
 
 function normalizeValue(v: string): string {
 	return v.replace(/\s+/g, '').toLowerCase();
-}
-
-function rewriteTitle(
-	title: string,
-	changes: Array<{ name: string; old?: string; new: string }>,
-): string {
-	let out = title;
-	for (const c of changes) {
-		if (c.old) {
-			out = substituteValueVariants(out, c.old, c.new);
-		}
-	}
-	return out;
 }
 
 /**

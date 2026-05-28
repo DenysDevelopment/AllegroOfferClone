@@ -196,7 +196,7 @@ describe('buildCloneBody', () => {
     } as unknown as AllegroClient;
   }
 
-  it('substitutes the parameter and rewrites the title', async () => {
+  it('uses the catalog product name as the title (no override substitution)', async () => {
     const steps: Parameters<typeof buildCloneBody>[3] = [];
     const { body } = await buildCloneBody(
       fakeClient({}),
@@ -207,8 +207,24 @@ describe('buildCloneBody', () => {
       },
       steps,
     );
-    expect((body as { name: string }).name).toContain('512');
-    expect((body as { name: string }).name).not.toContain('256');
+    // Title comes from the catalog product card name, not the offer title,
+    // and the SSD override is NOT substituted into it.
+    expect((body as { name: string }).name).toBe('Lenovo IdeaPad 5');
+  });
+
+  it('nameOverride still wins over the catalog name', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const { body } = await buildCloneBody(
+      fakeClient({}),
+      baseOffer,
+      {
+        sourceOfferId: 'src-1',
+        paramOverrides: {},
+        nameOverride: 'Мой ручной заголовок',
+      },
+      steps,
+    );
+    expect((body as { name: string }).name).toBe('Мой ручной заголовок');
   });
 
   it('uses matched product id when catalog has the desired variant', async () => {
@@ -449,7 +465,8 @@ describe('cloneOffer dry run', () => {
     });
 
     expect(res.outcome).toEqual({ kind: 'dry-run' });
-    expect((res.body as { name: string }).name).toContain('512');
+    // Title is the catalog product card name (not the offer title with override substituted in).
+    expect((res.body as { name: string }).name).toBe('Test');
   });
 });
 
