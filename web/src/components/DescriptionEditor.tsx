@@ -145,7 +145,10 @@ export function DescriptionEditor({
 				) : (
 					sections.map((s, sIdx) => {
 						const layout = detectLayout(s.items);
-						const twoCol = s.items.length === 2;
+						const twoCol =
+							layout === 'text-image' ||
+							layout === 'image-text' ||
+							layout === 'image-image';
 						return (
 							<div
 								key={sIdx}
@@ -157,6 +160,7 @@ export function DescriptionEditor({
 											value={layout}
 											onChange={e => setLayout(sIdx, e.target.value as Layout)}
 											className='input h-7 text-[12px] py-0 w-auto'
+											aria-label='Раскладка строки'
 											title='Раскладка строки'>
 											{LAYOUTS.map(l => (
 												<option key={l.value} value={l.value}>
@@ -261,7 +265,7 @@ function ImageSlot({
 				: undefined;
 		const missing = previewUrl === undefined;
 		return (
-			<div className='grid grid-cols-[56px_1fr] gap-2 items-center'>
+			<div className='grid grid-cols-[56px_1fr_auto] gap-2 items-center'>
 				<div className='aspect-square w-14 h-14 border border-border rounded-md overflow-hidden bg-soft flex items-center justify-center'>
 					{previewUrl ? (
 						<img
@@ -280,6 +284,13 @@ function ImageSlot({
 				<span className={missing ? 'var-chip var-chip--missing' : 'var-chip'}>
 					{missing ? `Фото · ${photoRef.idx} · нет` : `Фото · ${photoRef.idx}`}
 				</span>
+				<button
+					type='button'
+					onClick={() => onChange('')}
+					className='btn btn-ghost h-10 w-10 px-0 text-ink-faint hover:text-bad'
+					title='Сбросить на ссылку'>
+					✕
+				</button>
 			</div>
 		);
 	}
