@@ -204,21 +204,13 @@ export default function App() {
 		[preview?.parameters, cleanedOverrides, nameOverride, priceOverride],
 	);
 
-	// Live-computed title with parameter overrides applied (mirrors server logic).
-	const autoName = useMemo(() => {
-		if (!preview?.name) return '';
-		let out = preview.name;
-		for (const o of overrides) {
-			const meta = preview.parameters?.find(
-				p => (p.name ?? '').toLowerCase() === o.name.trim().toLowerCase(),
-			);
-			// Allegro stores dict-param values in `valuesLabels` and free-form ones in `values`.
-			const old = meta?.valuesLabels?.[0] || meta?.values?.[0];
-			if (!old || !o.value.trim()) continue;
-			out = substituteValueVariants(out, old, o.value.trim());
-		}
-		return out;
-	}, [preview, overrides]);
+	// Auto title defaults to the CATALOG product card name (preview.product.name),
+	// falling back to the offer's listing title. No parameter-override substitution
+	// (per product decision 2026-05-28) — operator can still edit it by hand.
+	const autoName = useMemo(
+		() => preview?.product?.name ?? preview?.name ?? '',
+		[preview],
+	);
 
 	// When a new offer is loaded, reset "user edited" flags.
 	useEffect(() => {
@@ -1004,31 +996,4 @@ function SummaryRow({
 	);
 }
 
-// Mirrors server-side substituteValueVariants to keep the live title preview in sync.
-function substituteValueVariants(
-	s: string,
-	oldVal: string,
-	newVal: string,
-): string {
-	const variants = expandVariants(oldVal);
-	const targets = expandVariants(newVal);
-	let out = s;
-	for (let i = 0; i < variants.length; i++) {
-		const re = new RegExp(escapeRegExp(variants[i]), 'gi');
-		if (re.test(out)) out = out.replace(re, targets[i]);
-	}
-	return out;
-}
-
-function expandVariants(v: string): string[] {
-	const trimmed = v.trim();
-	const tight = trimmed.replace(/\s+/g, '');
-	return Array.from(
-		new Set([trimmed, tight, tight.toLowerCase(), tight.toUpperCase()]),
-	);
-}
-
-function escapeRegExp(s: string): string {
-	return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-}
 
