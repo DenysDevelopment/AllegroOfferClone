@@ -1223,8 +1223,11 @@ function stripReadOnlyPostFields(
 }
 
 /**
- * Allegro's `standardized.sections[*].items` must hold 1 or 2 items. Split any
- * larger section into multiple sections of at most 2 items, preserving order.
+ * Allegro's `standardized.sections[*].items` must hold 1 or 2 items, AND the
+ * layout [TEXT, TEXT] (two text blocks in one row) is explicitly forbidden.
+ * This function:
+ *   1. Chunks any section with >2 items into ≤2-item chunks, preserving order.
+ *   2. Splits any resulting [TEXT, TEXT] pair into two single-text rows.
  * Mutates body in place.
  */
 export function splitDescriptionSectionsToMaxTwoItems(
@@ -1233,23 +1236,46 @@ export function splitDescriptionSectionsToMaxTwoItems(
 ): void {
 	const desc = (body as { description?: DescriptionOverride }).description;
 	if (!desc?.sections?.length) return;
-	let splits = 0;
+	let chunked = 0;
+	let textPairsSplit = 0;
 	const next: typeof desc.sections = [];
 	for (const s of desc.sections) {
-		if (s.items.length <= 2) {
-			next.push(s);
-			continue;
-		}
-		splits++;
-		for (let i = 0; i < s.items.length; i += 2) {
-			next.push({ items: s.items.slice(i, i + 2) });
+		// 1) Chunk any section with >2 items into ≤2-item chunks, preserving order.
+		const chunks: DescriptionItem[][] =
+			s.items.length <= 2
+				? [s.items]
+				: (() => {
+						chunked++;
+						const acc: DescriptionItem[][] = [];
+						for (let i = 0; i < s.items.length; i += 2) {
+							acc.push(s.items.slice(i, i + 2));
+						}
+						return acc;
+					})();
+		// 2) Any [TEXT, TEXT] pair is illegal on Allegro — split into two single rows.
+		for (const items of chunks) {
+			if (
+				items.length === 2 &&
+				items[0].type === 'TEXT' &&
+				items[1].type === 'TEXT'
+			) {
+				textPairsSplit++;
+				next.push({ items: [items[0]] });
+				next.push({ items: [items[1]] });
+			} else {
+				next.push({ items });
+			}
 		}
 	}
-	if (splits > 0) {
+	if (chunked > 0 || textPairsSplit > 0) {
 		desc.sections = next;
 		steps.push({
 			level: 'info',
-			message: `Описание разрезано: ${splits} секц. с >2 элементами → ${next.length} секц. с ≤2 элементами`,
+			message:
+				`Описание нормализовано: секц. с >2 элементами разрезано ${chunked}` +
+				(textPairsSplit > 0
+					? `; пар [текст+текст] разделено ${textPairsSplit} (Allegro запрещает два текста в строке)`
+					: ''),
 		});
 	}
 }

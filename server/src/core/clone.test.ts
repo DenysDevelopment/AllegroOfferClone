@@ -4,6 +4,7 @@ import {
   substituteValueVariants,
   buildCloneBody,
   cloneOffer,
+  splitDescriptionSectionsToMaxTwoItems,
 } from './clone.js';
 import type { AllegroOffer, AllegroProductSetItem } from './types.js';
 import type { AllegroClient } from './allegro.js';
@@ -743,5 +744,51 @@ describe('buildCloneBody — offer refs', () => {
     );
     const b = body as { delivery?: { shippingRates?: { id: string } } };
     expect(b.delivery?.shippingRates).toEqual({ id: 'SR-TGT' });
+  });
+});
+
+describe('splitDescriptionSectionsToMaxTwoItems', () => {
+  const T = (content: string) => ({ type: 'TEXT' as const, content });
+  const I = (url: string) => ({ type: 'IMAGE' as const, url });
+
+  function run(sections: Array<{ items: Array<{ type: string }> }>) {
+    const body = { description: { sections } } as Record<string, unknown>;
+    splitDescriptionSectionsToMaxTwoItems(body, []);
+    return (body as { description: { sections: Array<{ items: Array<{ type: string }> }> } })
+      .description.sections;
+  }
+
+  it('splits [TEXT, TEXT] into two single-text rows', () => {
+    const out = run([{ items: [T('a'), T('b')] }]);
+    expect(out).toEqual([{ items: [T('a')] }, { items: [T('b')] }]);
+  });
+
+  it('keeps valid two-item layouts untouched', () => {
+    const out = run([
+      { items: [T('a'), I('u1')] },
+      { items: [I('u2'), T('b')] },
+      { items: [I('u3'), I('u4')] },
+    ]);
+    expect(out).toEqual([
+      { items: [T('a'), I('u1')] },
+      { items: [I('u2'), T('b')] },
+      { items: [I('u3'), I('u4')] },
+    ]);
+  });
+
+  it('chunks >2 items by two, then fixes any [TEXT,TEXT] pair', () => {
+    // [T,I,T] -> chunk -> [T,I] + [T]
+    const out = run([{ items: [T('a'), I('u1'), T('b')] }]);
+    expect(out).toEqual([{ items: [T('a'), I('u1')] }, { items: [T('b')] }]);
+  });
+
+  it('chunks [T,T,T,T] -> 2 pairs -> 4 single-text rows', () => {
+    const out = run([{ items: [T('a'), T('b'), T('c'), T('d')] }]);
+    expect(out).toEqual([
+      { items: [T('a')] },
+      { items: [T('b')] },
+      { items: [T('c')] },
+      { items: [T('d')] },
+    ]);
   });
 });
