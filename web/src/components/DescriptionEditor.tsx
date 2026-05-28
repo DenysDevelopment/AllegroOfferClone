@@ -11,6 +11,7 @@ import {
 	tokensToChipsHtml,
 } from './shortcodes';
 import { PhotoPicker } from './PhotoPicker';
+import { LAYOUTS, detectLayout, relayoutSection, type Layout } from './descriptionLayout';
 
 interface Props {
 	value: DescriptionSections;
@@ -76,32 +77,15 @@ export function DescriptionEditor({
 		setSections(next);
 	};
 
-	const removeItem = (sIdx: number, iIdx: number) => {
-		const next = sections
-			.map((s, i) =>
-				i === sIdx ? { items: s.items.filter((_, j) => j !== iIdx) } : s,
-			)
-			.filter(s => s.items.length > 0);
-		setSections(next);
-	};
-
-	const addItem = (sIdx: number, kind: 'TEXT' | 'IMAGE') => {
-		const item: DescriptionItem =
-			kind === 'TEXT'
-				? { type: 'TEXT', content: '' }
-				: { type: 'IMAGE', url: '' };
+	const setLayout = (sIdx: number, layout: Layout) => {
 		const next = sections.map((s, i) =>
-			i === sIdx ? { items: [...s.items, item] } : s,
+			i === sIdx ? { items: relayoutSection(s.items, layout) } : s,
 		);
 		setSections(next);
 	};
 
-	const addSection = (kind: 'TEXT' | 'IMAGE') => {
-		const item: DescriptionItem =
-			kind === 'TEXT'
-				? { type: 'TEXT', content: '' }
-				: { type: 'IMAGE', url: '' };
-		setSections([...sections, { items: [item] }]);
+	const addSection = (layout: Layout) => {
+		setSections([...sections, { items: relayoutSection([], layout) }]);
 	};
 
 	const removeSection = (sIdx: number) =>
@@ -121,7 +105,7 @@ export function DescriptionEditor({
 				<span className='label flex items-center gap-2'>
 					Описание
 					<span className='text-[11px] font-medium text-ink-muted normal-case tracking-normal'>
-						· {sections.length} секц.
+						· {sections.length} строк
 					</span>
 					{dirty && (
 						<span className='text-[11px] font-medium text-flame normal-case tracking-normal'>
@@ -143,29 +127,15 @@ export function DescriptionEditor({
 								onDelete={onDeleteTemplate}
 							/>
 						)}
-					<div className='flex items-center gap-1'>
-						{dirty && (
-							<button
-								type='button'
-								onClick={onReset}
-								className='btn btn-ghost h-7 px-2 text-[12px]'
-								title='Вернуть исходные'>
-								сбросить
-							</button>
-						)}
+					{dirty && (
 						<button
 							type='button'
-							onClick={() => addSection('TEXT')}
-							className='btn btn-ghost h-7 px-2 text-[12px]'>
-							+ текст
+							onClick={onReset}
+							className='btn btn-ghost h-7 px-2 text-[12px]'
+							title='Вернуть исходные'>
+							сбросить
 						</button>
-						<button
-							type='button'
-							onClick={() => addSection('IMAGE')}
-							className='btn btn-ghost h-7 px-2 text-[12px]'>
-							+ картинка
-						</button>
-					</div>
+					)}
 				</div>
 			</header>
 
@@ -173,178 +143,177 @@ export function DescriptionEditor({
 				{sections.length === 0 ? (
 					<p className='text-[13px] text-ink-muted'>Описание пусто.</p>
 				) : (
-					sections.map((s, sIdx) => (
-						<div
-							key={sIdx}
-							className='border border-border-muted rounded-md p-3 space-y-2 bg-soft/30'>
-							<div className='flex items-center justify-between'>
-								<span className='label'>Секция {sIdx + 1}</span>
-								<div className='flex'>
-									<button
-										type='button'
-										onClick={() => moveSection(sIdx, -1)}
-										disabled={sIdx === 0}
-										className='btn btn-ghost h-7 w-7 px-0 text-ink-faint disabled:opacity-30'
-										title='вверх'>
-										↑
-									</button>
-									<button
-										type='button'
-										onClick={() => moveSection(sIdx, 1)}
-										disabled={sIdx === sections.length - 1}
-										className='btn btn-ghost h-7 w-7 px-0 text-ink-faint disabled:opacity-30'
-										title='вниз'>
-										↓
-									</button>
-									<button
-										type='button'
-										onClick={() => removeSection(sIdx)}
-										className='btn btn-ghost h-7 w-7 px-0 text-ink-faint hover:text-bad'
-										title='удалить секцию'>
-										✕
-									</button>
+					sections.map((s, sIdx) => {
+						const layout = detectLayout(s.items);
+						const twoCol = s.items.length === 2;
+						return (
+							<div
+								key={sIdx}
+								className='border border-border-muted rounded-md p-3 space-y-2 bg-soft/30'>
+								<div className='flex items-center justify-between gap-2'>
+									<div className='flex items-center gap-2'>
+										<span className='label'>Строка {sIdx + 1}</span>
+										<select
+											value={layout}
+											onChange={e => setLayout(sIdx, e.target.value as Layout)}
+											className='input h-7 text-[12px] py-0 w-auto'
+											title='Раскладка строки'>
+											{LAYOUTS.map(l => (
+												<option key={l.value} value={l.value}>
+													{l.label}
+												</option>
+											))}
+										</select>
+									</div>
+									<div className='flex'>
+										<button
+											type='button'
+											onClick={() => moveSection(sIdx, -1)}
+											disabled={sIdx === 0}
+											className='btn btn-ghost h-7 w-7 px-0 text-ink-faint disabled:opacity-30'
+											title='вверх'>
+											↑
+										</button>
+										<button
+											type='button'
+											onClick={() => moveSection(sIdx, 1)}
+											disabled={sIdx === sections.length - 1}
+											className='btn btn-ghost h-7 w-7 px-0 text-ink-faint disabled:opacity-30'
+											title='вниз'>
+											↓
+										</button>
+										<button
+											type='button'
+											onClick={() => removeSection(sIdx)}
+											className='btn btn-ghost h-7 w-7 px-0 text-ink-faint hover:text-bad'
+											title='удалить строку'>
+											✕
+										</button>
+									</div>
 								</div>
-							</div>
 
-							{s.items.map((it, iIdx) => {
-								return (
 								<div
-									key={iIdx}
-									className='grid grid-cols-[1fr_auto] gap-2 items-start'>
-									{it.type === 'TEXT' ? (
-										<RichTextarea
-											value={it.content}
-											onChange={v => updateItem(sIdx, iIdx, { content: v })}
-											varMap={varMap}
-											photoUrls={photoUrls}
-										/>
-									) : (() => {
-										const photoRef = parsePhotoRefUrl(it.url);
-										if (photoRef) {
-											const previewUrl =
-												photoRef.idx >= 1 && photoRef.idx <= photoUrls.length
-													? photoUrls[photoRef.idx - 1]
-													: undefined;
-											const missing = previewUrl === undefined;
-											return (
-												<div className='grid grid-cols-[56px_1fr] gap-2 items-center'>
-													<div className='aspect-square w-14 h-14 border border-border rounded-md overflow-hidden bg-soft flex items-center justify-center'>
-														{previewUrl ? (
-															<img
-																src={previewUrl}
-																alt=''
-																loading='lazy'
-																className='w-full h-full object-cover'
-																onError={e => {
-																	(e.target as HTMLImageElement).style.opacity =
-																		'0.2';
-																}}
-															/>
-														) : (
-															<span className='text-ink-faint text-[10px]'>
-																—
-															</span>
-														)}
-													</div>
-													<span
-														className={
-															missing
-																? 'var-chip var-chip--missing'
-																: 'var-chip'
-														}>
-														{missing
-															? `Фото · ${photoRef.idx} · нет`
-															: `Фото · ${photoRef.idx}`}
-													</span>
-												</div>
-											);
-										}
-										return (
-											<div className='grid grid-cols-[56px_1fr_auto] gap-2 items-center'>
-												<div className='aspect-square w-14 h-14 border border-border rounded-md overflow-hidden bg-soft flex items-center justify-center'>
-													{it.url ? (
-														<img
-															src={it.url}
-															alt=''
-															loading='lazy'
-															className='w-full h-full object-contain'
-															onError={e => {
-																(e.target as HTMLImageElement).style.opacity =
-																	'0.2';
-															}}
-														/>
-													) : (
-														<span className='text-ink-faint text-[10px]'>—</span>
-													)}
-												</div>
-												<input
-													className='input font-mono text-[12px]'
-													placeholder='https://…'
-													value={it.url}
-													onChange={e =>
-														updateItem(sIdx, iIdx, { url: e.target.value })
-													}
-												/>
-												<PhotoPicker
-													photoUrls={photoUrls}
-													onPick={n =>
-														updateItem(sIdx, iIdx, {
-															url: `{{photo:${n}}}`,
-														})
-													}
-													buttonClassName='btn btn-ghost h-10 w-10 px-0 text-ink-faint hover:text-ink text-[11px] disabled:opacity-40'
-													label='+ Фото'
-													title='Превратить в ссылку на фото оффера'
-												/>
-											</div>
-										);
-									})()}
-									<button
-										type='button'
-										onClick={() => removeItem(sIdx, iIdx)}
-										className='btn btn-ghost h-10 w-10 px-0 text-ink-faint hover:text-bad'
-										title='убрать элемент'>
-										✕
-									</button>
+									className={
+										twoCol
+											? 'grid grid-cols-2 gap-2 items-start'
+											: 'grid grid-cols-1 gap-2'
+									}>
+									{s.items.map((it, iIdx) =>
+										it.type === 'TEXT' ? (
+											<RichTextarea
+												key={iIdx}
+												value={it.content}
+												onChange={v => updateItem(sIdx, iIdx, { content: v })}
+												varMap={varMap}
+												photoUrls={photoUrls}
+											/>
+										) : (
+											<ImageSlot
+												key={iIdx}
+												url={it.url}
+												onChange={url => updateItem(sIdx, iIdx, { url })}
+												photoUrls={photoUrls}
+											/>
+										),
+									)}
 								</div>
-								);
-							})}
-
-							<div className='flex gap-1 pt-1'>
-								<button
-									type='button'
-									onClick={() => addItem(sIdx, 'TEXT')}
-									className='btn btn-ghost h-7 px-2 text-[12px]'>
-									+ текст
-								</button>
-								<button
-									type='button'
-									onClick={() => addItem(sIdx, 'IMAGE')}
-									className='btn btn-ghost h-7 px-2 text-[12px]'>
-									+ картинка
-								</button>
-								<PhotoPicker
-									photoUrls={photoUrls}
-									onPick={n => {
-										const next = sections.map((sec, i) =>
-											i === sIdx
-												? {
-														items: [
-															...sec.items,
-															{ type: 'IMAGE' as const, url: `{{photo:${n}}}` },
-														],
-													}
-												: sec,
-										);
-										setSections(next);
-									}}
-								/>
 							</div>
-						</div>
-					))
+						);
+					})
 				)}
+
+				<div className='flex flex-wrap items-center gap-1 pt-1'>
+					<span className='text-[12px] text-ink-muted mr-1'>+ строка:</span>
+					{LAYOUTS.map(l => (
+						<button
+							key={l.value}
+							type='button'
+							onClick={() => addSection(l.value)}
+							className='btn btn-ghost h-7 px-2 text-[12px]'>
+							{l.label}
+						</button>
+					))}
+				</div>
 			</div>
 		</section>
+	);
+}
+
+/**
+ * Image slot for a description row: thumbnail preview (photo-ref aware) +
+ * URL input + «+ Фото» picker that turns the slot into a `{{photo:N}}` ref.
+ * Extracted so it can sit in either column of a two-item row.
+ */
+function ImageSlot({
+	url,
+	onChange,
+	photoUrls,
+}: {
+	url: string;
+	onChange: (url: string) => void;
+	photoUrls: string[];
+}) {
+	const photoRef = parsePhotoRefUrl(url);
+	if (photoRef) {
+		const previewUrl =
+			photoRef.idx >= 1 && photoRef.idx <= photoUrls.length
+				? photoUrls[photoRef.idx - 1]
+				: undefined;
+		const missing = previewUrl === undefined;
+		return (
+			<div className='grid grid-cols-[56px_1fr] gap-2 items-center'>
+				<div className='aspect-square w-14 h-14 border border-border rounded-md overflow-hidden bg-soft flex items-center justify-center'>
+					{previewUrl ? (
+						<img
+							src={previewUrl}
+							alt=''
+							loading='lazy'
+							className='w-full h-full object-cover'
+							onError={e => {
+								(e.target as HTMLImageElement).style.opacity = '0.2';
+							}}
+						/>
+					) : (
+						<span className='text-ink-faint text-[10px]'>—</span>
+					)}
+				</div>
+				<span className={missing ? 'var-chip var-chip--missing' : 'var-chip'}>
+					{missing ? `Фото · ${photoRef.idx} · нет` : `Фото · ${photoRef.idx}`}
+				</span>
+			</div>
+		);
+	}
+	return (
+		<div className='grid grid-cols-[56px_1fr_auto] gap-2 items-center'>
+			<div className='aspect-square w-14 h-14 border border-border rounded-md overflow-hidden bg-soft flex items-center justify-center'>
+				{url ? (
+					<img
+						src={url}
+						alt=''
+						loading='lazy'
+						className='w-full h-full object-contain'
+						onError={e => {
+							(e.target as HTMLImageElement).style.opacity = '0.2';
+						}}
+					/>
+				) : (
+					<span className='text-ink-faint text-[10px]'>—</span>
+				)}
+			</div>
+			<input
+				className='input font-mono text-[12px]'
+				placeholder='https://…'
+				value={url}
+				onChange={e => onChange(e.target.value)}
+			/>
+			<PhotoPicker
+				photoUrls={photoUrls}
+				onPick={n => onChange(`{{photo:${n}}}`)}
+				buttonClassName='btn btn-ghost h-10 w-10 px-0 text-ink-faint hover:text-ink text-[11px] disabled:opacity-40'
+				label='+ Фото'
+				title='Превратить в ссылку на фото оффера'
+			/>
+		</div>
 	);
 }
 
