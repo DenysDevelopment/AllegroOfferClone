@@ -496,7 +496,7 @@ export default function App() {
 				<Banner note={bannerNote} onDismiss={() => setBannerNote(null)} />
 			)}
 
-			<div className='max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-10'>
+			<div className='max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 pt-6 pb-10'>
 				<div className='flex items-center justify-between mb-5'>
 					<div className='flex items-center gap-3'>
 						<h1 className='text-[20px] font-semibold text-ink leading-tight'>
@@ -790,7 +790,7 @@ function BindingStatus({
 function Banner({ note, onDismiss }: { note: string; onDismiss: () => void }) {
 	const isErr = /ошибк|error|fail/i.test(note);
 	return (
-		<div className='max-w-[1280px] mx-auto px-4 sm:px-6 lg:px-8 mt-4'>
+		<div className='max-w-[1536px] mx-auto px-4 sm:px-6 lg:px-8 mt-4'>
 			<div
 				className={`flex items-center justify-between rounded-md border px-3 py-2 text-[13px] ${
 					isErr
