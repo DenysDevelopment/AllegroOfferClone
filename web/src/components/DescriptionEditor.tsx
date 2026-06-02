@@ -100,7 +100,11 @@ export function DescriptionEditor({
 	};
 
 	return (
-		<section className='panel'>
+		// overflow-visible (overrides .panel's overflow-hidden) so the «Шаблоны»
+		// dropdown and the variable/photo pickers can extend past the panel edge
+		// instead of being clipped. The panel's own content is padded, so nothing
+		// bleeds past the rounded corners.
+		<section className='panel overflow-visible'>
 			<header className='px-4 h-11 flex items-center justify-between border-b border-border'>
 				<span className='label flex items-center gap-2'>
 					Описание
