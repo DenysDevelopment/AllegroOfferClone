@@ -642,8 +642,14 @@ function RichTextarea({
 				onBlur={emitAndRenderChips}
 				onPaste={e => {
 					// Paste as plain text to avoid copying disallowed inline styles / scripts.
+					// Also normalise the Unicode line/paragraph separators (U+2028/U+2029)
+					// that Word / PDF / marketplace copy leaves behind into plain newlines,
+					// so they become real paragraph breaks instead of an invisible blob that
+					// Allegro later mangles (see descriptionSanitize for the publish-side fix).
 					e.preventDefault();
-					const text = e.clipboardData.getData('text/plain');
+					const text = e.clipboardData
+						.getData('text/plain')
+						.replace(/[\u2028\u2029]/g, '\n');
 					document.execCommand('insertText', false, text);
 				}}
 				className={`border border-border rounded-md p-3 bg-card min-h-[160px] focus:outline-none focus:ring-1 focus:ring-flame/40 ${RENDERED_HTML_CLASS}`}
