@@ -210,19 +210,27 @@ function DictSingle({
 
 	if (useSelectForDictionary(param)) {
 		return (
-			<select
-				className='input cursor-pointer'
-				value={known || !selected ? selected : '__custom__'}
-				onChange={e =>
-					onChange(e.target.value && e.target.value !== '__custom__' ? [e.target.value] : [])
-				}>
-				<option value=''>— не задано —</option>
-				{(param.dictionary ?? []).map(d => (
-					<option key={d.id ?? d.value} value={d.value}>
-						{d.value}
-					</option>
-				))}
-			</select>
+			<div className='flex flex-col gap-1.5'>
+				<select
+					className='input cursor-pointer'
+					value={known ? selected : ''}
+					onChange={e => onChange(e.target.value ? [e.target.value] : [])}>
+					<option value=''>— не задано —</option>
+					{(param.dictionary ?? []).map(d => (
+						<option key={d.id ?? d.value} value={d.value}>
+							{d.value}
+						</option>
+					))}
+				</select>
+				{custom && (
+					<input
+						className='input'
+						placeholder='Своё значение'
+						value={known ? '' : selected}
+						onChange={e => onChange(e.target.value ? [e.target.value] : [])}
+					/>
+				)}
+			</div>
 		);
 	}
 
@@ -233,7 +241,7 @@ function DictSingle({
 					<label key={d.id ?? d.value} className='flex items-center gap-1.5 text-[13px] text-ink'>
 						<input
 							type='radio'
-							name={`p-${param.id}`}
+							name={`p-${param.id ?? param.name}`}
 							checked={selected === d.value}
 							onChange={() => onChange([d.value])}
 						/>
