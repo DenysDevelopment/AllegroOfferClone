@@ -48,7 +48,7 @@ describe('buildVarMap', () => {
   it('lets an override win over the parameter value', () => {
     const map = buildVarMap({
       parameters: [param('SSD', { values: ['256'], unit: 'GB' })],
-      overrides: { SSD: '512 GB' },
+      overrides: { SSD: ['512 GB'] },
     });
     expect(map.get('SSD')).toBe('512 GB');
   });

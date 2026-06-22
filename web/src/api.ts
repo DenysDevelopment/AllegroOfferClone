@@ -128,7 +128,7 @@ export interface CreateResponsibleProducerPayload {
 
 export interface ClonePayload {
   sourceOfferId: string;
-  paramOverrides: Record<string, string>;
+  paramOverrides: Record<string, string[]>;
   nameOverride?: string;
   priceOverride?: string;
   stockOverride?: number;

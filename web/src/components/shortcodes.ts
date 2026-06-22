@@ -41,9 +41,9 @@ function paramValue(p: OfferParameter): string {
 
 export interface VarMapInput {
   parameters: OfferParameter[];
-  /** Parameter-name -> override value. A non-empty override wins over the
-   *  source value; empty values are ignored (treated as "not overridden"). */
-  overrides: Record<string, string>;
+  /** Parameter-name -> override values. A non-empty override wins over the
+   *  source value; empty/blank values are ignored ("not overridden"). */
+  overrides: Record<string, string[]>;
   title?: string;
   price?: string;
 }
@@ -59,9 +59,10 @@ export function buildVarMap(input: VarMapInput): Map<string, string> {
     if (!name) continue;
     map.set(name, paramValue(p));
   }
-  for (const [name, value] of Object.entries(input.overrides)) {
+  for (const [name, values] of Object.entries(input.overrides)) {
     const k = name.trim();
-    if (k && value.trim()) map.set(k, value.trim());
+    const joined = values.map((v) => v.trim()).filter(Boolean).join(', ');
+    if (k && joined) map.set(k, joined);
   }
   if (input.title) map.set('@title', input.title);
   if (input.price) map.set('@price', input.price);

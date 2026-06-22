@@ -27,10 +27,8 @@ import { GpsrPanel } from './components/GpsrPanel';
 import { ImagesEditor } from './components/ImagesEditor';
 import { NewProductPanel } from './components/NewProductPanel';
 import { OfferRefsPanel } from './components/OfferRefsPanel';
-import {
-	OverridesEditor,
-	type ParamOverride,
-} from './components/OverridesEditor';
+import { ParametersEditor } from './components/ParametersEditor';
+import { diffOverrides, seedParamValues } from './components/paramControls';
 import { PublishAccountPicker } from './components/PublishAccountPicker';
 import { SourcePanel } from './components/SourcePanel';
 import { StepsLog } from './components/StepsLog';
@@ -81,7 +79,7 @@ export default function App() {
 	const [previewLoading, setPreviewLoading] = useState(false);
 	const [previewError, setPreviewError] = useState<string | null>(null);
 
-	const [overrides, setOverrides] = useState<ParamOverride[]>([]);
+	const [paramValues, setParamValues] = useState<Record<string, string[]>>({});
 	const [nameOverride, setNameOverride] = useState('');
 	const [priceOverride, setPriceOverride] = useState('');
 	const [stockOverride, setStockOverride] = useState('');
@@ -181,15 +179,19 @@ export default function App() {
 		[accounts, activeAccountId],
 	);
 
-	const cleanedOverrides = useMemo(() => {
-		const map: Record<string, string> = {};
-		for (const o of overrides) {
-			const k = o.name.trim();
-			const v = o.value.trim();
-			if (k && v) map[k] = v;
-		}
-		return map;
-	}, [overrides]);
+	const paramSeed = useMemo(
+		() =>
+			seedParamValues(
+				preview?.categoryParameters ?? [],
+				preview?.parameters ?? [],
+			),
+		[preview],
+	);
+
+	const cleanedOverrides = useMemo(
+		() => diffOverrides(paramValues, paramSeed),
+		[paramValues, paramSeed],
+	);
 
 	// key -> resolved value for description variables. Overrides win over
 	// source values; @title / @price mirror the offer-level overrides.
@@ -214,6 +216,12 @@ export default function App() {
 
 	// When a new offer is loaded, reset "user edited" flags.
 	useEffect(() => {
+		setParamValues(
+			seedParamValues(
+				preview?.categoryParameters ?? [],
+				preview?.parameters ?? [],
+			),
+		);
 		setNameUserEdited(false);
 		setPriceUserEdited(false);
 		setStockUserEdited(false);
@@ -266,7 +274,7 @@ export default function App() {
 		setImagesUserEdited(false);
 		setDescription({ sections: [] });
 		setDescriptionUserEdited(false);
-		setOverrides([]);
+		setParamValues({});
 		setNameOverride('');
 		setNameUserEdited(false);
 	}, [targetProduct?.id]);
@@ -567,10 +575,11 @@ export default function App() {
 						/>
 
 						{!targetProduct && (
-							<OverridesEditor
+							<ParametersEditor
 								preview={preview}
-								overrides={overrides}
-								onChange={setOverrides}
+								values={paramValues}
+								seed={paramSeed}
+								onChange={setParamValues}
 							/>
 						)}
 
