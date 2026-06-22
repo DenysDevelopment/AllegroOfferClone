@@ -204,7 +204,7 @@ describe('buildCloneBody', () => {
       baseOffer,
       {
         sourceOfferId: 'src-1',
-        paramOverrides: { 'Pojemność dysku SSD': '512 GB' },
+        paramOverrides: { 'Pojemność dysku SSD': ['512 GB'] },
       },
       steps,
     );
@@ -247,7 +247,7 @@ describe('buildCloneBody', () => {
       baseOffer,
       {
         sourceOfferId: 'src-1',
-        paramOverrides: { 'Pojemność dysku SSD': '512 GB' },
+        paramOverrides: { 'Pojemność dysku SSD': ['512 GB'] },
       },
       steps,
     );
@@ -263,7 +263,7 @@ describe('buildCloneBody', () => {
       baseOffer,
       {
         sourceOfferId: 'src-1',
-        paramOverrides: { 'Pojemność dysku SSD': '512 GB' },
+        paramOverrides: { 'Pojemność dysku SSD': ['512 GB'] },
       },
       steps,
     );
@@ -278,6 +278,39 @@ describe('buildCloneBody', () => {
     expect(ps[0].product.id).toBeUndefined();
     const hdd = ps[0].product.parameters?.find((p) => p.name === 'Pojemność dysku SSD');
     expect(hdd?.values).toEqual(['512 GB']);
+  });
+
+  it('applies a multi-value override (multipleChoices dictionary) into the product parameters', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const offer: AllegroOffer = {
+      ...baseOffer,
+      productSet: [
+        {
+          product: {
+            id: 'PROD-256',
+            name: 'Lenovo IdeaPad 5',
+            category: { id: '491' },
+            parameters: [{ id: 'P_PORTS', name: 'Złącza', values: ['USB'] }],
+          },
+          quantity: { value: 1 },
+        },
+      ],
+    };
+    const { body } = await buildCloneBody(
+      fakeClient({ searchHits: [] }),
+      offer,
+      { sourceOfferId: 'src-1', paramOverrides: { 'Złącza': ['USB', 'HDMI'] } },
+      steps,
+    );
+    const ps = (
+      body as {
+        productSet: Array<{
+          product: { parameters?: Array<{ name?: string; values?: string[] }> };
+        }>;
+      }
+    ).productSet;
+    const ports = ps[0].product.parameters?.find((p) => p.name === 'Złącza');
+    expect(ports?.values).toEqual(['USB', 'HDMI']);
   });
 
   it('cross-account + PROPOSED source card → inline product (cannot reuse foreign proposal)', async () => {
@@ -461,7 +494,7 @@ describe('cloneOffer dry run', () => {
 
     const res = await cloneOffer(fake, {
       sourceOfferId: 'src',
-      paramOverrides: { 'Pojemność dysku SSD': '512 GB' },
+      paramOverrides: { 'Pojemność dysku SSD': ['512 GB'] },
       dryRun: true,
     });
 

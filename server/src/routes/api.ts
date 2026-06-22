@@ -75,7 +75,7 @@ const proposeProductSchema = z.object({
 
 const cloneSchema = z.object({
   sourceOfferId: z.string().min(1),
-  paramOverrides: z.record(z.string(), z.string()).default({}),
+  paramOverrides: z.record(z.string(), z.array(z.string())).default({}),
   nameOverride: z.string().optional(),
   priceOverride: z.string().regex(/^\d+(\.\d{1,2})?$/).optional(),
   stockOverride: z.number().int().min(0).optional(),

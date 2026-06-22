@@ -22,8 +22,9 @@ export interface DescriptionOverride {
 
 export interface CloneOptions {
 	sourceOfferId: string;
-	/** Map of parameter name (e.g. "Pojemność dysku SSD") → new value (e.g. "512 GB"). */
-	paramOverrides: Record<string, string>;
+	/** Map of parameter name (e.g. "Pojemność dysku SSD") → list of new values
+	 *  (e.g. ["512 GB"], or ["USB","HDMI"] for a multipleChoices dictionary). */
+	paramOverrides: Record<string, string[]>;
 	/** Override the new offer title. If omitted, we try to substitute old values with new in the source title. */
 	nameOverride?: string;
 	/** Override the price (PLN). */
@@ -193,7 +194,9 @@ export async function buildCloneBody(
 	const desiredParams: AllegroParameter[] = sourceParams.map(p => ({ ...p }));
 	const oldValues: Array<{ name: string; old?: string; new: string }> = [];
 
-	for (const [paramName, newValue] of overrideEntries) {
+	for (const [paramName, rawValues] of overrideEntries) {
+		const newValues = rawValues.map(v => v.trim()).filter(Boolean);
+		if (newValues.length === 0) continue;
 		const idx = desiredParams.findIndex(
 			p => (p.name ?? '').toLowerCase() === paramName.toLowerCase(),
 		);
@@ -202,8 +205,8 @@ export async function buildCloneBody(
 				level: 'warn',
 				message: `Параметр «${paramName}» не найден на источнике - добавлю как новый`,
 			});
-			desiredParams.push({ id: '', name: paramName, values: [newValue] });
-			oldValues.push({ name: paramName, new: newValue });
+			desiredParams.push({ id: '', name: paramName, values: newValues });
+			oldValues.push({ name: paramName, new: newValues[0] });
 		} else {
 			// Dictionary params keep the human label in `valuesLabels` and `values` is null —
 			// fall back to it so title-substitution can find what to replace ("16 GB" etc.).
@@ -211,11 +214,11 @@ export async function buildCloneBody(
 				desiredParams[idx].valuesLabels?.[0] ?? desiredParams[idx].values?.[0];
 			desiredParams[idx] = {
 				...desiredParams[idx],
-				values: [newValue],
+				values: newValues,
 				// Drop dictionary id — Allegro will resolve from the value
 				valuesIds: undefined,
 			};
-			oldValues.push({ name: paramName, old, new: newValue });
+			oldValues.push({ name: paramName, old, new: newValues[0] });
 		}
 	}
 
