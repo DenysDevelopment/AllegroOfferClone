@@ -8,13 +8,13 @@
     <script>
       (function () {
         try {
-          var stored = localStorage.getItem('allegro.theme');
+          var pref = localStorage.getItem('allegro.theme');
+          if (pref !== 'light' && pref !== 'dark' && pref !== 'system')
+            pref = 'system';
           var sysDark =
             window.matchMedia &&
             window.matchMedia('(prefers-color-scheme: dark)').matches;
-          var theme = stored === 'light' || stored === 'dark'
-            ? stored
-            : sysDark ? 'dark' : 'light';
+          var theme = pref === 'system' ? (sysDark ? 'dark' : 'light') : pref;
           var root = document.documentElement;
           if (theme === 'dark') root.classList.add('dark');
           root.style.colorScheme = theme;

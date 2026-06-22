@@ -1,72 +1,61 @@
 import { useEffect, useState } from 'react';
 import {
 	applyTheme,
-	getInitialTheme,
-	setStoredTheme,
-	type Theme,
+	getStoredPref,
+	getSystemTheme,
+	resolveTheme,
+	setStoredPref,
+	type ThemePref,
 } from '../theme';
 
+const OPTIONS: Array<{ pref: ThemePref; label: string; title: string }> = [
+	{ pref: 'system', label: 'Авто', title: 'Как в системе' },
+	{ pref: 'light', label: 'Светлая', title: 'Светлая тема' },
+	{ pref: 'dark', label: 'Тёмная', title: 'Тёмная тема' },
+];
+
 export function ThemeToggle() {
-	const [theme, setTheme] = useState<Theme>(() => getInitialTheme());
+	const [pref, setPref] = useState<ThemePref>(() => getStoredPref());
 
 	useEffect(() => {
-		applyTheme(theme);
-		setStoredTheme(theme);
-	}, [theme]);
+		applyTheme(resolveTheme(pref));
+		setStoredPref(pref);
+	}, [pref]);
 
-	const isDark = theme === 'dark';
-	const toggle = () => setTheme(isDark ? 'light' : 'dark');
+	// In "system" mode, track OS theme changes live.
+	useEffect(() => {
+		if (pref !== 'system') return;
+		const mq = window.matchMedia?.('(prefers-color-scheme: dark)');
+		if (!mq) return;
+		const onChange = () => applyTheme(getSystemTheme());
+		mq.addEventListener('change', onChange);
+		return () => mq.removeEventListener('change', onChange);
+	}, [pref]);
 
 	return (
-		<button
-			type='button'
-			onClick={toggle}
-			className='btn btn-ghost h-8 w-8 px-0'
-			title={isDark ? 'Светлая тема' : 'Тёмная тема'}
-			aria-label={isDark ? 'Включить светлую тему' : 'Включить тёмную тему'}>
-			{isDark ? <SunIcon /> : <MoonIcon />}
-		</button>
-	);
-}
-
-function SunIcon() {
-	return (
-		<svg
-			width='16'
-			height='16'
-			viewBox='0 0 24 24'
-			fill='none'
-			stroke='currentColor'
-			strokeWidth='2'
-			strokeLinecap='round'
-			strokeLinejoin='round'
-			aria-hidden='true'>
-			<circle cx='12' cy='12' r='4' />
-			<path d='M12 2v2' />
-			<path d='M12 20v2' />
-			<path d='m4.93 4.93 1.41 1.41' />
-			<path d='m17.66 17.66 1.41 1.41' />
-			<path d='M2 12h2' />
-			<path d='M20 12h2' />
-			<path d='m6.34 17.66-1.41 1.41' />
-			<path d='m19.07 4.93-1.41 1.41' />
-		</svg>
-	);
-}
-
-function MoonIcon() {
-	return (
-		<svg
-			width='16'
-			height='16'
-			viewBox='0 0 24 24'
-			fill='none'
-			stroke='currentColor'
-			strokeWidth='2'
-			strokeLinecap='round'
-			strokeLinejoin='round'
-			aria-hidden='true'>
-			<path d='M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z' />
-		</svg>
+		<div
+			role='group'
+			aria-label='Тема'
+			className='inline-flex items-center gap-0.5 rounded-md border border-border bg-card p-0.5'>
+			{OPTIONS.map(o => {
+				const active = pref === o.pref;
+				return (
+					<button
+						key={o.pref}
+						type='button'
+						onClick={() => setPref(o.pref)}
+						title={o.title}
+						aria-pressed={active}
+						className={
+							'h-7 px-2 text-[12px] rounded transition ' +
+							(active
+								? 'bg-flame-tint text-flame font-medium'
+								: 'text-ink-muted hover:text-ink')
+						}>
+						{o.label}
+					</button>
+				);
+			})}
+		</div>
 	);
 }
