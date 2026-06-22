@@ -179,13 +179,7 @@ export interface OfferPreview {
     images?: Array<{ url: string } | string>;
   } | null;
   parameters: OfferParameter[];
-  categoryParameters: Array<{
-    id: string;
-    name: string;
-    type: string;
-    dictionary?: Array<{ id?: string; value: string }>;
-    options?: Record<string, unknown>;
-  }>;
+  categoryParameters: CategoryParameter[];
   description: DescriptionSections | null;
   images: Array<{ url: string } | string>;
   gpsr?: OfferGpsr | null;
