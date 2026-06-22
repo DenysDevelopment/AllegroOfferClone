@@ -11,7 +11,6 @@ import {
 	type ProductSearchHit,
 	type ProposedProduct,
 } from '../api';
-import { Combobox } from './Combobox';
 import { DescriptionEditor } from './DescriptionEditor';
 import { finalizeDescriptionForAllegro } from './descriptionSanitize';
 import { ImagesEditor } from './ImagesEditor';
@@ -21,6 +20,11 @@ import {
 	expandPhotoChips,
 	flattenVars,
 } from './shortcodes';
+import {
+	allowsCustomValue,
+	controlKind,
+	useSelectForDictionary,
+} from './paramControls';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -150,22 +154,29 @@ export function NewProductPanel({
 			if (!meta) continue;
 			const isDict =
 				meta.type === 'dictionary' && (meta.dictionary?.length ?? 0) > 0;
-			if (isDict && src.valuesIds && src.valuesIds[0]) {
-				next[meta.id] = { id: meta.id, valuesIds: [src.valuesIds[0]] };
+			// Dictionary: carry ALL selected ids (multipleChoices params keep several).
+			if (isDict && src.valuesIds && src.valuesIds.length > 0) {
+				next[meta.id] = { id: meta.id, valuesIds: [...src.valuesIds] };
 				continue;
 			}
-			const text =
-				src.values?.[0] ?? src.valuesLabels?.[0] ?? undefined;
-			if (text && text.trim()) {
-				if (isDict) {
-					const hit = meta.dictionary?.find(
-						d => d.value.toLowerCase() === text.toLowerCase(),
-					);
-					if (hit?.id) {
-						next[meta.id] = { id: meta.id, valuesIds: [hit.id] };
-						continue;
-					}
+			// Dictionary given as labels — resolve each to its id where possible.
+			const labels = (src.values ?? src.valuesLabels ?? []).filter(Boolean);
+			if (isDict && labels.length > 0) {
+				const ids = labels
+					.map(
+						t =>
+							meta.dictionary?.find(
+								d => d.value.toLowerCase() === t.toLowerCase(),
+							)?.id,
+					)
+					.filter((id): id is string => Boolean(id));
+				if (ids.length > 0) {
+					next[meta.id] = { id: meta.id, valuesIds: ids };
+					continue;
 				}
+			}
+			const text = labels[0];
+			if (text && text.trim()) {
 				next[meta.id] = { id: meta.id, values: [text] };
 			}
 		}
@@ -229,20 +240,13 @@ export function NewProductPanel({
 
 	const setParamValue = (
 		p: CategoryParameter,
-		raw: { text?: string; dictId?: string },
+		next: ProductParameterValue | undefined,
 	) => {
 		setValues(prev => {
-			const next = { ...prev };
-			if (!raw.text && !raw.dictId) {
-				delete next[p.id];
-				return next;
-			}
-			if (raw.dictId) {
-				next[p.id] = { id: p.id, valuesIds: [raw.dictId] };
-			} else if (raw.text !== undefined) {
-				next[p.id] = { id: p.id, values: [raw.text] };
-			}
-			return next;
+			const out = { ...prev };
+			if (!next) delete out[p.id];
+			else out[p.id] = next;
+			return out;
 		});
 	};
 
@@ -486,7 +490,7 @@ export function NewProductPanel({
 									key={p.id}
 									param={p}
 									value={values[p.id]}
-									onChange={raw => setParamValue(p, raw)}
+									onChange={next => setParamValue(p, next)}
 								/>
 							))}
 						</div>
@@ -501,7 +505,7 @@ export function NewProductPanel({
 									key={p.id}
 									param={p}
 									value={values[p.id]}
-									onChange={raw => setParamValue(p, raw)}
+									onChange={next => setParamValue(p, next)}
 								/>
 							))}
 						</div>
@@ -517,7 +521,7 @@ export function NewProductPanel({
 										key={p.id}
 										param={p}
 										value={values[p.id]}
-										onChange={raw => setParamValue(p, raw)}
+										onChange={next => setParamValue(p, next)}
 									/>
 								))}
 							</div>
@@ -620,26 +624,21 @@ function ParamRow({
 }: {
 	param: CategoryParameter;
 	value: ProductParameterValue | undefined;
-	onChange: (raw: { text?: string; dictId?: string }) => void;
+	onChange: (next: ProductParameterValue | undefined) => void;
 }) {
-	const isDict =
-		param.type === 'dictionary' && (param.dictionary?.length ?? 0) > 0;
-	const dictMap = useMemo(() => {
-		const m = new Map<string, string>(); // value text → id
-		for (const d of param.dictionary ?? []) {
-			if (d.id) m.set(d.value, d.id);
-		}
-		return m;
-	}, [param.dictionary]);
+	const kind = controlKind(param);
+	const dict = param.dictionary ?? [];
+	const ids = value?.valuesIds ?? [];
+	const text = value?.values?.[0] ?? '';
+	const custom = allowsCustomValue(param);
 
-	const currentText =
-		value?.values?.[0] ??
-		(() => {
-			const id = value?.valuesIds?.[0];
-			if (!id) return '';
-			const found = param.dictionary?.find(d => d.id === id);
-			return found?.value ?? '';
-		})();
+	// Dictionary values are addressed by id (valuesIds); free text / numbers go
+	// in `values`. A parameter is one or the other, so each emitter clears the
+	// other — matching Allegro's product-parameter shape.
+	const emitIds = (nextIds: string[]) =>
+		onChange(nextIds.length ? { id: param.id, valuesIds: nextIds } : undefined);
+	const emitText = (t: string) =>
+		onChange(t.trim() ? { id: param.id, values: [t] } : undefined);
 
 	return (
 		<div className='grid grid-cols-1 sm:grid-cols-[1fr_1.4fr] gap-2 items-start'>
@@ -650,38 +649,95 @@ function ParamRow({
 				{param.unit && (
 					<span className='text-[11px] text-ink-faint'>[{param.unit}]</span>
 				)}
-				<span className='text-[11px] text-ink-faint font-mono'>
-					{param.type}
-				</span>
+				<span className='text-[11px] text-ink-faint font-mono'>{param.type}</span>
 			</div>
-			{isDict ? (
-				<Combobox
-					value={currentText}
-					onChange={v => {
-						const id = dictMap.get(v);
-						if (id) onChange({ dictId: id });
-						else onChange({ text: v });
-					}}
-					options={(param.dictionary ?? []).map(d => d.value)}
-					placeholder='Выбери из словаря'
-				/>
-			) : (
-				<input
-					className='input'
-					value={currentText}
-					onChange={e => onChange({ text: e.target.value })}
-					placeholder={
-						param.type === 'integer' || param.type === 'float'
-							? 'число'
-							: 'текст'
-					}
-					inputMode={
-						param.type === 'integer' || param.type === 'float'
-							? 'decimal'
-							: 'text'
-					}
-				/>
-			)}
+			<div className='flex flex-col gap-1.5'>
+				{kind === 'dict-multi' && (
+					<div className='flex flex-wrap gap-x-4 gap-y-1.5'>
+						{dict.map(d => {
+							const checked = !!d.id && ids.includes(d.id);
+							return (
+								<label
+									key={d.id ?? d.value}
+									className='flex items-center gap-1.5 text-[13px] text-ink'>
+									<input
+										type='checkbox'
+										checked={checked}
+										onChange={() => {
+											if (!d.id) return;
+											emitIds(
+												checked ? ids.filter(x => x !== d.id) : [...ids, d.id],
+											);
+										}}
+									/>
+									{d.value}
+								</label>
+							);
+						})}
+					</div>
+				)}
+
+				{kind === 'dict-single' &&
+					(useSelectForDictionary(param) ? (
+						<select
+							className='input cursor-pointer'
+							value={ids[0] ?? ''}
+							onChange={e => emitIds(e.target.value ? [e.target.value] : [])}>
+							<option value=''>— не задано —</option>
+							{dict.map(d => (
+								<option key={d.id ?? d.value} value={d.id ?? ''}>
+									{d.value}
+								</option>
+							))}
+						</select>
+					) : (
+						<div className='flex flex-wrap gap-x-4 gap-y-1.5'>
+							{dict.map(d => (
+								<label
+									key={d.id ?? d.value}
+									className='flex items-center gap-1.5 text-[13px] text-ink'>
+									<input
+										type='radio'
+										name={`np-${param.id ?? param.name}`}
+										checked={!!d.id && ids[0] === d.id}
+										onChange={() => d.id && emitIds([d.id])}
+									/>
+									{d.value}
+								</label>
+							))}
+						</div>
+					))}
+
+				{(kind === 'number' || kind === 'range') && (
+					<input
+						className='input w-48'
+						type='number'
+						inputMode='decimal'
+						placeholder='число'
+						value={text}
+						onChange={e => emitText(e.target.value)}
+					/>
+				)}
+
+				{kind === 'text' && (
+					<input
+						className='input'
+						maxLength={(param.restrictions as { maxLength?: number })?.maxLength}
+						placeholder='текст'
+						value={text}
+						onChange={e => emitText(e.target.value)}
+					/>
+				)}
+
+				{kind === 'dict-single' && custom && (
+					<input
+						className='input'
+						placeholder='Своё значение'
+						value={ids.length ? '' : text}
+						onChange={e => emitText(e.target.value)}
+					/>
+				)}
+			</div>
 		</div>
 	);
 }
