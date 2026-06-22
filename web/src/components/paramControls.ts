@@ -59,8 +59,15 @@ export function seedParamValues(
 
 function sameValues(a: string[], b: string[]): boolean {
 	if (a.length !== b.length) return false;
-	const sb = new Set(b);
-	return a.every(v => sb.has(v));
+	const count = new Map<string, number>();
+	for (const v of a) count.set(v, (count.get(v) ?? 0) + 1);
+	for (const v of b) {
+		const n = count.get(v);
+		if (!n) return false;
+		if (n === 1) count.delete(v);
+		else count.set(v, n - 1);
+	}
+	return count.size === 0;
 }
 
 /** Returns only the parameters whose working value differs from the seed. */
