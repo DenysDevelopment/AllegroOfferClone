@@ -435,6 +435,20 @@ describe('buildCloneBody', () => {
     expect(desc.sections[0].items[0]).toEqual({ type: 'TEXT', content: '<h1>new</h1>' });
   });
 
+  it('warns and does not inline a not-found multi-value override (empty id filtered out)', async () => {
+    const steps: Parameters<typeof buildCloneBody>[3] = [];
+    const { body } = await buildCloneBody(
+      fakeClient({ searchHits: [] }),
+      baseOffer,
+      { sourceOfferId: 'src-1', paramOverrides: { 'Nieistniejący': ['USB', 'HDMI'] } },
+      steps,
+    );
+    const ps = (body as { productSet: Array<{ product: { parameters?: Array<{ id?: string; name?: string }> } }> }).productSet;
+    const found = ps[0].product.parameters?.find((p) => p.name === 'Nieistniejący');
+    expect(found).toBeUndefined();
+    expect(steps.some((s) => s.level === 'warn' && s.message.includes('Nieistniejący'))).toBe(true);
+  });
+
   it('replaces offer-level images when imagesOverride is provided', async () => {
     const steps: Parameters<typeof buildCloneBody>[3] = [];
     const offerWithImages: AllegroOffer = {

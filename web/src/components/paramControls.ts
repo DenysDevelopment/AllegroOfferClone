@@ -9,6 +9,8 @@ export function controlKind(p: CategoryParameter): ControlKind {
 	const r = (p.restrictions ?? {}) as { multipleChoices?: boolean; range?: boolean };
 	if (p.type === 'dictionary') return r.multipleChoices ? 'dict-multi' : 'dict-single';
 	if (p.type === 'integer' || p.type === 'float') return r.range ? 'range' : 'number';
+	// string — and any unrecognized/future type — falls back to a free-text
+	// control (Allegro accepts a plain string value for these).
 	return 'text';
 }
 

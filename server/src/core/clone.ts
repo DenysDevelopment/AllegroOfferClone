@@ -205,6 +205,12 @@ export async function buildCloneBody(
 				level: 'warn',
 				message: `Параметр «${paramName}» не найден на источнике - добавлю как новый`,
 			});
+			if (newValues.length > 1) {
+				steps.push({
+					level: 'warn',
+					message: `«${paramName}»: несколько значений для нового параметра без id — Allegro может не принять; задайте параметр, который есть на источнике, или привяжите карточку из каталога`,
+				});
+			}
 			desiredParams.push({ id: '', name: paramName, values: newValues });
 			oldValues.push({ name: paramName, new: newValues[0] });
 		} else {

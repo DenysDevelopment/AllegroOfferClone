@@ -34,6 +34,9 @@ describe('controlKind', () => {
 	it('string → text', () => {
 		expect(controlKind({ id: 'S', name: 'Kod', type: 'string' })).toBe('text');
 	});
+	it('falls back to text for an unrecognized type', () => {
+		expect(controlKind({ id: 'U', name: 'X', type: 'weird' as never })).toBe('text');
+	});
 });
 
 describe('allowsCustomValue', () => {
