@@ -2,6 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { getStoredPref, resolveTheme } from './theme';
 
 describe('resolveTheme', () => {
+	afterEach(() => vi.unstubAllGlobals());
+
 	it('returns the explicit preference unchanged', () => {
 		expect(resolveTheme('light')).toBe('light');
 		expect(resolveTheme('dark')).toBe('dark');
