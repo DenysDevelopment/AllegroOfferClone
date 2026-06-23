@@ -844,6 +844,14 @@ export function stripReadonlyFields(o: AllegroOffer): Record<string, unknown> {
  * `ConstraintViolationException.DescriptionImageNotAttached`. Mutates body
  * in place. Failures are reported as warn steps but don't abort the clone
  * (the create call will surface the same problem with a clearer message).
+ *
+ * Re-uploading always yields a FRESH URL (the client downloads + re-uploads
+ * the bytes — see AllegroClient.uploadImageByUrl). When a re-hosted description
+ * image is ALSO present in the offer gallery (`body.images`), we must rewrite
+ * that gallery entry to the new URL in place — otherwise the gallery keeps the
+ * stale original AND syncDescriptionImagesToGallery later appends the fresh
+ * copy, leaving the same photo in the gallery twice (the "duplicated gallery"
+ * bug). Remapping keeps it one-per-photo and the gallery URL attachable.
  */
 async function reuploadDescriptionImages(
 	client: AllegroClient,
@@ -852,9 +860,11 @@ async function reuploadDescriptionImages(
 ): Promise<void> {
 	const desc = (body as { description?: DescriptionOverride }).description;
 	if (!desc?.sections?.length) return;
+	const galleryImages = (body as { images?: { url: string }[] }).images;
 	let ok = 0;
 	let fail = 0;
 	let same = 0;
+	let remapped = 0;
 	for (const s of desc.sections) {
 		for (const it of s.items) {
 			if (it.type !== 'IMAGE') continue;
@@ -866,6 +876,17 @@ async function reuploadDescriptionImages(
 				const unchanged = newUrl === url;
 				if (unchanged) same++;
 				it.url = newUrl;
+				// If this photo was already in the gallery under its old URL,
+				// repoint that gallery entry to the re-hosted URL rather than
+				// leaving a duplicate behind.
+				if (!unchanged && Array.isArray(galleryImages)) {
+					for (const img of galleryImages) {
+						if (img && img.url === url) {
+							img.url = newUrl;
+							remapped++;
+						}
+					}
+				}
 				ok++;
 				steps.push({
 					level: unchanged ? 'warn' : 'info',
@@ -881,6 +902,12 @@ async function reuploadDescriptionImages(
 				});
 			}
 		}
+	}
+	if (remapped > 0) {
+		steps.push({
+			level: 'info',
+			message: `В галерее перенаправлено на перезалитые URL: ${remapped} (без дублей)`,
+		});
 	}
 	if (ok > 0 || fail > 0) {
 		steps.push({

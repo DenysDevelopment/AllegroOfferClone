@@ -472,6 +472,76 @@ describe('buildCloneBody', () => {
   });
 });
 
+describe('cloneOffer — gallery duplication repro', () => {
+  it('does not double the gallery when carried-over description images overlap it and get re-hosted', async () => {
+    let createdBody: Record<string, unknown> | undefined;
+    const fake = {
+      getOffer: async () => ({
+        id: 'src',
+        name: 'Laptop',
+        category: { id: '491' },
+        productSet: [
+          {
+            product: { id: 'P', name: 'Laptop', category: { id: '491' }, parameters: [] },
+            quantity: { value: 1 },
+          },
+        ],
+        images: [
+          { url: 'https://a.allegroimg.com/A.jpg' },
+          { url: 'https://a.allegroimg.com/B.jpg' },
+        ],
+        // Carried-over description references the SAME photos that are in the gallery.
+        description: {
+          sections: [
+            { items: [{ type: 'IMAGE', url: 'https://a.allegroimg.com/A.jpg' }] },
+            { items: [{ type: 'IMAGE', url: 'https://a.allegroimg.com/B.jpg' }] },
+          ],
+        },
+        sellingMode: { format: 'BUY_NOW', price: { amount: '1', currency: 'PLN' } },
+        stock: { available: 1, unit: 'UNIT' },
+        publication: { status: 'ACTIVE' as const },
+      }),
+      getProduct: async () => ({
+        id: 'P',
+        name: 'Laptop',
+        category: { id: '491' },
+        parameters: [],
+      }),
+      searchProducts: async () => ({ products: [] }),
+      // Mirrors the real impl: re-upload returns a FRESH (different) URL.
+      uploadImageByUrl: async (url: string) => ({
+        location: url.replace('.jpg', '-rehosted.jpg'),
+      }),
+      createOffer: async (body: Record<string, unknown>) => {
+        createdBody = body;
+        return { status: 201, offer: { id: 'NEW', ...body } };
+      },
+    } as unknown as AllegroClient;
+
+    const res = await cloneOffer(fake, { sourceOfferId: 'src', paramOverrides: {} });
+    expect(res.outcome?.kind).toBe('created');
+    const images = (createdBody as { images: string[] }).images;
+    // Two distinct source photos → the gallery must contain two entries, not four.
+    expect(images).toHaveLength(2);
+    // The gallery entries are repointed to the re-hosted (attachable) URLs.
+    expect(new Set(images)).toEqual(
+      new Set([
+        'https://a.allegroimg.com/A-rehosted.jpg',
+        'https://a.allegroimg.com/B-rehosted.jpg',
+      ]),
+    );
+    // Allegro's rule still holds: every description IMAGE URL is in the gallery.
+    const descUrls = (
+      createdBody as {
+        description: { sections: { items: { type: string; url?: string }[] }[] };
+      }
+    ).description.sections.flatMap(s =>
+      s.items.filter(i => i.type === 'IMAGE').map(i => i.url),
+    );
+    for (const u of descUrls) expect(images).toContain(u);
+  });
+});
+
 describe('cloneOffer dry run', () => {
   it('returns a body without calling createOffer', async () => {
     const fake = {
