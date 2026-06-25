@@ -972,8 +972,14 @@ function shortenUrl(u: string): string {
  * When the offer is bound to a catalog product (productSet[0].product.id),
  * Allegro pulls the catalog product's description and validates ITS IMAGE
  * URLs against the offer's `images` gallery — exactly like for offer-level
- * descriptions. Fetch the catalog product and append every URL referenced by
- * its description / images that's not already in `body.images`. Mutates in
+ * descriptions. So we ALWAYS append the catalog product's DESCRIPTION image
+ * URLs that aren't already in `body.images`.
+ *
+ * The catalog card's OWN photos (product.images) are a different matter: they
+ * are a generic stock render — often a laptop showing the Windows desktop — and
+ * are NOT required in the offer gallery. We append them ONLY as a fallback when
+ * the offer has no photos of its own; otherwise they pollute the seller's real
+ * gallery with an extra stock tile ("лишняя фотка из каталога"). Mutates in
  * place; non-fatal on fetch failure.
  */
 async function syncCatalogProductImagesToGallery(
@@ -999,8 +1005,13 @@ async function syncCatalogProductImagesToGallery(
 	}
 
 	const urls = new Set<string>();
+	// Catalog CARD photos: stock render, not required in the gallery. Take them
+	// only when the offer brings no photos of its own — otherwise skip so they
+	// don't show up as an extra tile next to the seller's real photos.
+	const offerImages = (body as { images?: unknown[] }).images;
+	const offerHasPhotos = Array.isArray(offerImages) && offerImages.length > 0;
 	const productImages = (product as { images?: unknown }).images;
-	if (Array.isArray(productImages)) {
+	if (!offerHasPhotos && Array.isArray(productImages)) {
 		for (const img of productImages) {
 			const url =
 				typeof img === 'string'

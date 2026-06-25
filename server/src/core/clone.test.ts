@@ -616,6 +616,65 @@ describe('cloneOffer — gallery duplication repro', () => {
   });
 });
 
+describe('cloneOffer — catalog card image', () => {
+  it('keeps the catalog card stock photo out of the gallery when the offer has its own photos', async () => {
+    let createdBody: Record<string, unknown> | undefined;
+    const fake = {
+      getOffer: async () => ({
+        id: 'src',
+        name: 'Laptop',
+        category: { id: '491' },
+        productSet: [
+          {
+            product: { id: 'P', name: 'Laptop', category: { id: '491' }, parameters: [] },
+            quantity: { value: 1 },
+          },
+        ],
+        // The seller's real photos.
+        images: [
+          { url: 'https://a.allegroimg.com/A.jpg' },
+          { url: 'https://a.allegroimg.com/B.jpg' },
+        ],
+        // No offer-level description → syncCatalogProductImagesToGallery runs.
+        sellingMode: { format: 'BUY_NOW', price: { amount: '1', currency: 'PLN' } },
+        stock: { available: 1, unit: 'UNIT' },
+        publication: { status: 'ACTIVE' as const },
+      }),
+      // The catalog card carries a generic stock render (images) + a description image.
+      getProduct: async () => ({
+        id: 'P',
+        name: 'Laptop',
+        category: { id: '491' },
+        parameters: [],
+        images: [{ url: 'https://a.allegroimg.com/CARD-STOCK.jpg' }],
+        description: {
+          sections: [
+            { items: [{ type: 'IMAGE', url: 'https://a.allegroimg.com/CARD-DESC.jpg' }] },
+          ],
+        },
+      }),
+      searchProducts: async () => ({ products: [] }),
+      uploadImageByUrl: async (url: string) => ({ location: url }),
+      createOffer: async (body: Record<string, unknown>) => {
+        createdBody = body;
+        return { status: 201, offer: { id: 'NEW', ...body } };
+      },
+    } as unknown as AllegroClient;
+
+    const res = await cloneOffer(fake, { sourceOfferId: 'src', paramOverrides: {} });
+    expect(res.outcome?.kind).toBe('created');
+    const images = (createdBody as { images: string[] }).images;
+
+    // The seller's real photos stay.
+    expect(images).toContain('https://a.allegroimg.com/A.jpg');
+    expect(images).toContain('https://a.allegroimg.com/B.jpg');
+    // The catalog card's stock render is NOT dragged into the gallery.
+    expect(images).not.toContain('https://a.allegroimg.com/CARD-STOCK.jpg');
+    // The catalog DESCRIPTION image still is (Allegro validates those).
+    expect(images).toContain('https://a.allegroimg.com/CARD-DESC.jpg');
+  });
+});
+
 describe('cloneOffer dry run', () => {
   it('returns a body without calling createOffer', async () => {
     const fake = {
