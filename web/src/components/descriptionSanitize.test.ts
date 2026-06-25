@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 import {
 	finalizeDescriptionForAllegro,
 	sanitizeAllegroHtml,
+	sanitizeDescriptionForAllegro,
 } from './descriptionSanitize';
 
 describe('sanitizeAllegroHtml', () => {
@@ -198,5 +199,39 @@ describe('finalizeDescriptionForAllegro', () => {
 				upload,
 			),
 		).rejects.toThrow(/http:\/\/x\/y\.jpg.*boom/);
+	});
+});
+
+describe('sanitizeDescriptionForAllegro', () => {
+	it('sanitizes TEXT but passes IMAGE urls through unchanged (no re-upload)', () => {
+		const r = sanitizeDescriptionForAllegro({
+			sections: [
+				{
+					items: [
+						{ type: 'TEXT', content: '<strong>Hi</strong>' },
+						{ type: 'IMAGE', url: '  https://a.allegroimg.com/X.jpg  ' },
+					],
+				},
+			],
+		});
+		expect(r.sections).toHaveLength(1);
+		expect(r.sections[0].items).toEqual([
+			{ type: 'TEXT', content: '<p><b>Hi</b></p>' },
+			// trimmed, but NOT re-hosted: the server re-uploads + dedupes by this url
+			{ type: 'IMAGE', url: 'https://a.allegroimg.com/X.jpg' },
+		]);
+	});
+
+	it('drops empty TEXT items, empty IMAGE urls and empty sections', () => {
+		const r = sanitizeDescriptionForAllegro({
+			sections: [
+				{ items: [{ type: 'TEXT', content: '   ' }] },
+				{ items: [{ type: 'IMAGE', url: '   ' }] },
+				{ items: [{ type: 'TEXT', content: 'keep' }] },
+			],
+		});
+		expect(r.sections).toEqual([
+			{ items: [{ type: 'TEXT', content: '<p>keep</p>' }] },
+		]);
 	});
 });

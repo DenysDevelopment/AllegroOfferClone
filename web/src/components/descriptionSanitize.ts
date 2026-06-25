@@ -207,6 +207,38 @@ export function sanitizeAllegroHtml(html: string): string {
 }
 
 /**
+ * Sanitize a description's TEXT items for Allegro and pass IMAGE items through
+ * UNCHANGED (raw source URLs). Drops empty TEXT pieces and empty sections.
+ *
+ * Used by the CLONE flow: the server re-hosts description images itself
+ * (reuploadDescriptionImages) and dedupes them against the gallery by matching
+ * the SOURCE url. If we re-uploaded here first, those urls would change and the
+ * server's gallery-dedup could no longer match — leaving the same photo in the
+ * gallery twice. So clone keeps the source urls and lets the server do the
+ * single re-host. (Create-product still uses finalizeDescriptionForAllegro,
+ * which re-uploads, because there is no server-side re-host on that path.)
+ */
+export function sanitizeDescriptionForAllegro(
+	sections: DescriptionSections,
+): DescriptionSections {
+	const out: DescriptionSections['sections'] = [];
+	for (const s of sections.sections) {
+		const items: typeof s.items = [];
+		for (const it of s.items) {
+			if (it.type === 'TEXT') {
+				const cleaned = sanitizeAllegroHtml(it.content);
+				if (cleaned.trim()) items.push({ type: 'TEXT', content: cleaned });
+			} else {
+				const trimmed = it.url.trim();
+				if (trimmed) items.push({ type: 'IMAGE', url: trimmed });
+			}
+		}
+		if (items.length > 0) out.push({ items });
+	}
+	return { sections: out };
+}
+
+/**
  * Prepare a description for Allegro: sanitize TEXT-item HTML, re-upload each
  * IMAGE-item URL via `uploadByUrl` so the resulting URLs are "attached" to
  * the new offer/proposal (Allegro otherwise rejects with

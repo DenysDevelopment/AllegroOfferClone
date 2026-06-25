@@ -540,6 +540,80 @@ describe('cloneOffer — gallery duplication repro', () => {
     );
     for (const u of descUrls) expect(images).toContain(u);
   });
+
+  it('re-hosts a repeated description image only once (no duplicate gallery entries)', async () => {
+    let createdBody: Record<string, unknown> | undefined;
+    const uploadCalls: string[] = [];
+    let n = 0;
+    const fake = {
+      getOffer: async () => ({
+        id: 'src',
+        name: 'Laptop',
+        category: { id: '491' },
+        productSet: [
+          {
+            product: { id: 'P', name: 'Laptop', category: { id: '491' }, parameters: [] },
+            quantity: { value: 1 },
+          },
+        ],
+        images: [{ url: 'https://a.allegroimg.com/A.jpg' }],
+        // Photo A appears in the gallery AND twice in the description; D is
+        // description-only. Distinct source urls: {A, D}.
+        description: {
+          sections: [
+            { items: [{ type: 'IMAGE', url: 'https://a.allegroimg.com/A.jpg' }] },
+            { items: [{ type: 'IMAGE', url: 'https://a.allegroimg.com/A.jpg' }] },
+            { items: [{ type: 'IMAGE', url: 'https://a.allegroimg.com/D.jpg' }] },
+          ],
+        },
+        sellingMode: { format: 'BUY_NOW', price: { amount: '1', currency: 'PLN' } },
+        stock: { available: 1, unit: 'UNIT' },
+        publication: { status: 'ACTIVE' as const },
+      }),
+      getProduct: async () => ({
+        id: 'P',
+        name: 'Laptop',
+        category: { id: '491' },
+        parameters: [],
+      }),
+      searchProducts: async () => ({ products: [] }),
+      // Each call mints a UNIQUE fresh url (like the real Allegro upload), so a
+      // photo uploaded twice would land in the gallery twice.
+      uploadImageByUrl: async (url: string) => {
+        uploadCalls.push(url);
+        return { location: `https://a.allegroimg.com/rehosted-${++n}.jpg` };
+      },
+      createOffer: async (body: Record<string, unknown>) => {
+        createdBody = body;
+        return { status: 201, offer: { id: 'NEW', ...body } };
+      },
+    } as unknown as AllegroClient;
+
+    const res = await cloneOffer(fake, { sourceOfferId: 'src', paramOverrides: {} });
+    expect(res.outcome?.kind).toBe('created');
+
+    // A is re-hosted ONCE despite two references; D once → 2 uploads total.
+    expect(uploadCalls).toHaveLength(2);
+    expect(uploadCalls.filter(u => u === 'https://a.allegroimg.com/A.jpg')).toHaveLength(1);
+
+    const images = (createdBody as { images: string[] }).images;
+    // No duplicate gallery entry for A: exactly 2 distinct urls (A', D').
+    expect(images).toHaveLength(2);
+    expect(new Set(images).size).toBe(2);
+
+    // Both A-references resolve to the SAME re-hosted url; D to a different one.
+    const descUrls = (
+      createdBody as {
+        description: { sections: { items: { type: string; url?: string }[] }[] };
+      }
+    ).description.sections.flatMap(s =>
+      s.items.filter(i => i.type === 'IMAGE').map(i => i.url),
+    );
+    expect(descUrls[0]).toBe(descUrls[1]);
+    expect(descUrls[2]).not.toBe(descUrls[0]);
+    // Every description url is present in the gallery (Allegro's rule).
+    for (const u of descUrls) expect(images).toContain(u);
+  });
 });
 
 describe('cloneOffer dry run', () => {

@@ -838,20 +838,33 @@ export function stripReadonlyFields(o: AllegroOffer): Record<string, unknown> {
 }
 
 /**
- * Re-upload every IMAGE-item URL inside the description through the target
- * account's `POST /sale/images?url=...` so the resulting URLs are "attached"
- * to the new offer being created. Allegro otherwise rejects the create with
- * `ConstraintViolationException.DescriptionImageNotAttached`. Mutates body
- * in place. Failures are reported as warn steps but don't abort the clone
- * (the create call will surface the same problem with a clearer message).
+ * How many description images to re-host concurrently. Sequential re-upload was
+ * the clone bottleneck; Allegro's /sale/images endpoint tolerates a handful at
+ * once but not a large burst, so we cap the batch at a small number.
+ */
+const DESC_IMAGE_REUPLOAD_BATCH = 5;
+
+/**
+ * Re-upload every DISTINCT IMAGE-item URL inside the description through the
+ * target account's `POST /sale/images?url=...` so the resulting URLs are
+ * "attached" to the new offer being created. Allegro otherwise rejects the
+ * create with `ConstraintViolationException.DescriptionImageNotAttached`.
+ * Mutates body in place. Failures are reported as warn steps but don't abort
+ * the clone (the create call surfaces the same problem with a clearer message).
  *
- * Re-uploading always yields a FRESH URL (the client downloads + re-uploads
- * the bytes — see AllegroClient.uploadImageByUrl). When a re-hosted description
- * image is ALSO present in the offer gallery (`body.images`), we must rewrite
- * that gallery entry to the new URL in place — otherwise the gallery keeps the
- * stale original AND syncDescriptionImagesToGallery later appends the fresh
- * copy, leaving the same photo in the gallery twice (the "duplicated gallery"
- * bug). Remapping keeps it one-per-photo and the gallery URL attachable.
+ * Re-uploading always yields a FRESH URL (the client downloads + re-uploads the
+ * bytes — see AllegroClient.uploadImageByUrl). Two duplication guards:
+ *   1. Each distinct source url is re-hosted ONCE — a photo referenced multiple
+ *      times in the description doesn't mint several gallery copies.
+ *   2. When a re-hosted description image is ALSO in the offer gallery
+ *      (`body.images`), its gallery entry is repointed to the new URL in place —
+ *      otherwise the gallery keeps the stale original AND
+ *      syncDescriptionImagesToGallery appends the fresh copy, leaving the same
+ *      photo in the gallery twice. NOTE: this only works when the gallery still
+ *      holds the SOURCE urls; if the description images were pre-uploaded
+ *      elsewhere first, their urls no longer match and the guard can't fire — so
+ *      the clone path sends raw source urls and lets this function do the single
+ *      re-host.
  */
 async function reuploadDescriptionImages(
 	client: AllegroClient,
@@ -861,47 +874,77 @@ async function reuploadDescriptionImages(
 	const desc = (body as { description?: DescriptionOverride }).description;
 	if (!desc?.sections?.length) return;
 	const galleryImages = (body as { images?: { url: string }[] }).images;
+
+	// Collect every description IMAGE item, then reduce to the DISTINCT set of
+	// source URLs. Re-uploading the SAME photo more than once would mint a fresh
+	// URL each time and append every one to the gallery — a self-inflicted
+	// duplicate (the "по два раза" report). Re-host each distinct url EXACTLY
+	// once and reuse the result everywhere that url appears.
+	const imageItems = desc.sections
+		.flatMap(s => s.items)
+		.filter(
+			(it): it is { type: 'IMAGE'; url: string } =>
+				it.type === 'IMAGE' && !!it.url?.trim(),
+		);
+	if (imageItems.length === 0) return;
+	const distinctUrls = [...new Set(imageItems.map(it => it.url.trim()))];
+
+	// Re-upload distinct urls in small parallel batches. Sequential re-upload
+	// (one full download+upload per photo, one at a time) was the clone
+	// bottleneck; Allegro's /sale/images endpoint tolerates a small burst.
+	type Reup = { newUrl: string; unchanged: boolean } | { error: string };
+	const result = new Map<string, Reup>();
+	for (let i = 0; i < distinctUrls.length; i += DESC_IMAGE_REUPLOAD_BATCH) {
+		const batch = distinctUrls.slice(i, i + DESC_IMAGE_REUPLOAD_BATCH);
+		const settled = await Promise.all(
+			batch.map(async (url): Promise<[string, Reup]> => {
+				try {
+					const r = await client.uploadImageByUrl(url);
+					return [url, { newUrl: r.location, unchanged: r.location === url }];
+				} catch (err) {
+					return [url, { error: (err as Error).message }];
+				}
+			}),
+		);
+		for (const [url, r] of settled) result.set(url, r);
+	}
+
+	// Apply results: rewrite each description item and repoint any gallery entry
+	// still holding the OLD url to the re-hosted one — otherwise
+	// syncDescriptionImagesToGallery appends the fresh copy as a SECOND gallery
+	// entry next to the stale original (that was the gallery-duplication path).
 	let ok = 0;
 	let fail = 0;
 	let same = 0;
 	let remapped = 0;
-	for (const s of desc.sections) {
-		for (const it of s.items) {
-			if (it.type !== 'IMAGE') continue;
-			const url = it.url?.trim();
-			if (!url) continue;
-			try {
-				const r = await client.uploadImageByUrl(url);
-				const newUrl = r.location;
-				const unchanged = newUrl === url;
-				if (unchanged) same++;
-				it.url = newUrl;
-				// If this photo was already in the gallery under its old URL,
-				// repoint that gallery entry to the re-hosted URL rather than
-				// leaving a duplicate behind.
-				if (!unchanged && Array.isArray(galleryImages)) {
-					for (const img of galleryImages) {
-						if (img && img.url === url) {
-							img.url = newUrl;
-							remapped++;
-						}
-					}
+	for (const url of distinctUrls) {
+		const r = result.get(url);
+		if (!r) continue;
+		if ('error' in r) {
+			fail++;
+			steps.push({
+				level: 'warn',
+				message: `Не удалось перезалить картинку описания (${url}): ${r.error}`,
+			});
+			continue;
+		}
+		ok++;
+		if (r.unchanged) same++;
+		for (const it of imageItems) if (it.url.trim() === url) it.url = r.newUrl;
+		if (!r.unchanged && Array.isArray(galleryImages)) {
+			for (const img of galleryImages) {
+				if (img && img.url === url) {
+					img.url = r.newUrl;
+					remapped++;
 				}
-				ok++;
-				steps.push({
-					level: unchanged ? 'warn' : 'info',
-					message:
-						`desc-img re-upload: ${shortenUrl(url)} → ${shortenUrl(newUrl)}` +
-						(unchanged ? ' (Allegro dedup — same URL)' : ''),
-				});
-			} catch (err) {
-				fail++;
-				steps.push({
-					level: 'warn',
-					message: `Не удалось перезалить картинку описания (${url}): ${(err as Error).message}`,
-				});
 			}
 		}
+		steps.push({
+			level: r.unchanged ? 'warn' : 'info',
+			message:
+				`desc-img re-upload: ${shortenUrl(url)} → ${shortenUrl(r.newUrl)}` +
+				(r.unchanged ? ' (Allegro dedup — same URL)' : ''),
+		});
 	}
 	if (remapped > 0) {
 		steps.push({

@@ -13,7 +13,7 @@ import {
 import { AccountSwitcher } from './components/AccountSwitcher';
 import { ConnectGate } from './components/ConnectGate';
 import { DescriptionEditor } from './components/DescriptionEditor';
-import { finalizeDescriptionForAllegro } from './components/descriptionSanitize';
+import { sanitizeDescriptionForAllegro } from './components/descriptionSanitize';
 import {
 	buildVarMap,
 	expandPhotoChips,
@@ -433,12 +433,14 @@ export default function App() {
 		setErrorBox(null);
 		try {
 			let payload = buildPayload(false);
-			// Sanitize TEXT (drop disallowed tags, <strong>→<b>) and re-upload
-			// IMAGE URLs so Allegro accepts them as attached to this offer.
+			// Sanitize TEXT (drop disallowed tags, <strong>→<b>) only. Description
+			// IMAGE urls are left as raw source urls — the server re-hosts them once
+			// and dedupes against the gallery by matching those source urls. Re-
+			// uploading here first would change the urls and defeat that dedup,
+			// putting the same photo in the gallery twice.
 			if (payload.descriptionOverride) {
-				const finalDesc = await finalizeDescriptionForAllegro(
+				const finalDesc = sanitizeDescriptionForAllegro(
 					payload.descriptionOverride,
-					api.uploadImageByUrl,
 				);
 				payload = {
 					...payload,
