@@ -84,8 +84,6 @@ export default function App() {
 	const [priceOverride, setPriceOverride] = useState('');
 	const [stockOverride, setStockOverride] = useState('');
 	const [nameUserEdited, setNameUserEdited] = useState(false);
-	const [priceUserEdited, setPriceUserEdited] = useState(false);
-	const [stockUserEdited, setStockUserEdited] = useState(false);
 	const [publicationStatus, setPublicationStatus] = useState<
 		'ACTIVE' | 'INACTIVE'
 	>('INACTIVE');
@@ -214,7 +212,19 @@ export default function App() {
 		[preview],
 	);
 
-	// When a new offer is loaded, reset "user edited" flags.
+	// When a NEW offer is loaded (preview.id changes), reset the "user edited"
+	// flags AND reseed every source-derived field — params, images, description,
+	// price, stock — in ONE effect.
+	//
+	// This MUST stay a single effect. The flag reset and the (formerly gated)
+	// seed used to live in two separate effects both keyed on [preview.id].
+	// React runs both in the same commit against the SAME pre-reset render
+	// snapshot, so the seed read the *previous* offer's `…UserEdited === true`
+	// flag and skipped — leaving the previous offer's images/description in the
+	// editor and, on clone, in the freshly created offer (a Lenovo's photos with
+	// a DELL's description). Reseeding unconditionally here is correct: a new
+	// offer always starts from its own source data — the previous offer's manual
+	// edits belong to the previous offer.
 	useEffect(() => {
 		setParamValues(
 			seedParamValues(
@@ -223,29 +233,22 @@ export default function App() {
 			),
 		);
 		setNameUserEdited(false);
-		setPriceUserEdited(false);
-		setStockUserEdited(false);
 		setImagesUserEdited(false);
 		setDescriptionUserEdited(false);
-	}, [preview?.id]);
-
-	// Auto-fill images and description from the source on offer load (one-time per offer).
-	// Skipped when a catalog target product is bound — product data should come from the
-	// catalog card, not be carried over from the source offer.
-	useEffect(() => {
 		if (!preview) return;
+		// Commercial fields survive a catalog binding, so seed them either way.
+		setPriceOverride(preview.sellingMode?.price?.amount ?? '');
+		setStockOverride(
+			preview.stock?.available != null ? String(preview.stock.available) : '',
+		);
+		// Product-derived fields come from the catalog card when bound — don't
+		// carry the source offer's images/description in that case.
 		if (targetProduct) return;
-		if (!imagesUserEdited) {
-			const offerImgs = preview.images ?? [];
-			const productImgs = preview.product?.images ?? [];
-			const src = offerImgs.length ? offerImgs : productImgs;
-			setImageUrls(src.map(it => (typeof it === 'string' ? it : it.url)));
-		}
-		if (!descriptionUserEdited) {
-			setDescription(
-				preview.description ?? { sections: [] },
-			);
-		}
+		const offerImgs = preview.images ?? [];
+		const productImgs = preview.product?.images ?? [];
+		const src = offerImgs.length ? offerImgs : productImgs;
+		setImageUrls(src.map(it => (typeof it === 'string' ? it : it.url)));
+		setDescription(preview.description ?? { sections: [] });
 		// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [preview?.id]);
 
@@ -278,20 +281,6 @@ export default function App() {
 		setNameOverride('');
 		setNameUserEdited(false);
 	}, [targetProduct?.id]);
-
-	// Auto-fill price/stock from source when offer loads (one-time per offer).
-	useEffect(() => {
-		if (!preview) return;
-		if (!priceUserEdited) {
-			setPriceOverride(preview.sellingMode?.price?.amount ?? '');
-		}
-		if (!stockUserEdited) {
-			setStockOverride(
-				preview.stock?.available != null ? String(preview.stock.available) : '',
-			);
-		}
-		// eslint-disable-next-line react-hooks/exhaustive-deps
-	}, [preview?.id]);
 
 	const loadPreview = async () => {
 		if (!offerId) return;
@@ -623,12 +612,10 @@ export default function App() {
 							priceOverride={priceOverride}
 							onPrice={v => {
 								setPriceOverride(v);
-								setPriceUserEdited(true);
 							}}
 							stockOverride={stockOverride}
 							onStock={v => {
 								setStockOverride(v);
-								setStockUserEdited(true);
 							}}
 							publicationStatus={publicationStatus}
 							onPub={setPublicationStatus}
