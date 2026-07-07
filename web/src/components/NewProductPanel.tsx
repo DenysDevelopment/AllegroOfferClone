@@ -25,6 +25,7 @@ import {
 	controlKind,
 	useSelectForDictionary,
 } from './paramControls';
+import { useCrmPicker } from '../hooks/useCrmPicker';
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -48,6 +49,7 @@ interface NewProductPanelProps {
 	accounts: AccountSummary[];
 	publishAccountId: string;
 	onPublishAccountChange: (id: string) => void;
+	crmConfigured?: boolean;
 }
 
 export function NewProductPanel({
@@ -55,6 +57,7 @@ export function NewProductPanel({
 	accounts,
 	publishAccountId,
 	onPublishAccountChange,
+	crmConfigured,
 }: NewProductPanelProps) {
 	const [categoryId, setCategoryId] = useState(DEFAULT_CATEGORY_ID);
 	const [categoryQuery, setCategoryQuery] = useState('');
@@ -79,6 +82,8 @@ export function NewProductPanel({
 	const [templates, setTemplates] = useState<DescriptionTemplate[]>([]);
 
 	const [state, setState] = useState<CreateState>({ kind: 'idle' });
+
+	const { openPicker: openCrmPicker, element: crmPickerEl } = useCrmPicker();
 
 	// Catalog prefill: when operator picks an existing product, we stash it here
 	// and apply parameter values once the category's parameters finish loading
@@ -553,6 +558,9 @@ export function NewProductPanel({
 				onChange={setImages}
 				onUploadFile={onUploadFile}
 				onUploadByUrl={onUploadByUrl}
+				onImportFromCrm={
+					crmConfigured ? () => openCrmPicker(name?.trim() || '') : undefined
+				}
 			/>
 
 			<DescriptionEditor
@@ -613,6 +621,7 @@ export function NewProductPanel({
 					</div>
 				</section>
 			)}
+			{crmPickerEl}
 		</div>
 	);
 }

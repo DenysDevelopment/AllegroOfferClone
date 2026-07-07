@@ -33,6 +33,7 @@ import { PublishAccountPicker } from './components/PublishAccountPicker';
 import { SourcePanel } from './components/SourcePanel';
 import { StepsLog } from './components/StepsLog';
 import { ThemeToggle } from './components/ThemeToggle';
+import { useCrmPicker } from './hooks/useCrmPicker';
 
 const ACTIVE_ACCOUNT_KEY = 'allegro.activeAccountId';
 
@@ -46,6 +47,7 @@ const MODE_LABELS: Record<Mode, { tab: string; title: string }> = {
 export default function App() {
 	const [accounts, setAccounts] = useState<AccountSummary[] | null>(null);
 	const [defaultAccountId, setDefaultAccountId] = useState<string>('');
+	const [crmConfigured, setCrmConfigured] = useState(false);
 	const [activeAccountId, setActiveAccountIdState] = useState<string | null>(() => {
 		try {
 			return localStorage.getItem(ACTIVE_ACCOUNT_KEY);
@@ -114,11 +116,14 @@ export default function App() {
 		[],
 	);
 
+	const { openPicker: openCrmPicker, element: crmPickerEl } = useCrmPicker();
+
 	const refreshAccounts = useCallback(async () => {
 		try {
 			const data = await api.accounts();
 			setAccounts(data.accounts);
 			setDefaultAccountId(data.defaultAccountId);
+			setCrmConfigured(Boolean(data.crmConfigured));
 			setStatusError(null);
 			return data;
 		} catch (e) {
@@ -544,6 +549,7 @@ export default function App() {
 						accounts={accounts}
 						publishAccountId={publishAccountId}
 						onPublishAccountChange={setPublishAccountId}
+						crmConfigured={crmConfigured}
 					/>
 				) : (
 				<div className='grid grid-cols-1 xl:grid-cols-[minmax(0,1.1fr)_minmax(0,1fr)] gap-5'>
@@ -583,6 +589,16 @@ export default function App() {
 								}}
 								dirty={imagesUserEdited}
 								onReset={resetImages}
+								onUploadByUrl={
+									crmConfigured
+										? url => api.uploadImageByUrl(url).then(r => r.location)
+										: undefined
+								}
+								onImportFromCrm={
+									crmConfigured
+										? () => openCrmPicker(preview?.name ?? '')
+										: undefined
+								}
 							/>
 						)}
 
@@ -672,6 +688,7 @@ export default function App() {
 				</div>
 				)}
 			</div>
+			{crmPickerEl}
 		</Page>
 	);
 }
