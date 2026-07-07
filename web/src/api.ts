@@ -18,6 +18,7 @@ export interface AccountSummary {
 export interface AccountsResponse {
   defaultAccountId: string;
   accounts: AccountSummary[];
+  crmConfigured?: boolean;
 }
 
 export interface CloneStep {

@@ -29,7 +29,7 @@ async function main() {
     app.use(cors({ origin: true, credentials: true }));
   }
 
-  app.use('/api/auth', authRouter(registry));
+  app.use('/api/auth', authRouter(registry, { crmConfigured: Boolean(multi.crm) }));
   app.use('/api', apiRouter(registry, multi.dataDir, multi.crm));
 
   app.get('/api/health', (_req, res) => {

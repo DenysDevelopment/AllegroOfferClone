@@ -8,7 +8,7 @@ function stateCookieName(accountId: string): string {
   return `${STATE_COOKIE_PREFIX}${accountId}`;
 }
 
-export function authRouter(registry: AccountRegistry): Router {
+export function authRouter(registry: AccountRegistry, opts?: { crmConfigured?: boolean }): Router {
   const r = Router();
 
   // Lightweight list of all configured accounts + connection state.
@@ -26,6 +26,7 @@ export function authRouter(registry: AccountRegistry): Router {
       res.json({
         defaultAccountId: registry.defaultAccountId,
         accounts: items,
+        crmConfigured: Boolean(opts?.crmConfigured),
       });
     } catch (e) {
       next(e);
