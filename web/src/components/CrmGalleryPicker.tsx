@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { api, type CrmFolderDetail, type CrmFolderSummary, type CrmPhoto } from '../api';
 import { togglePhoto } from './crmSelection';
@@ -61,17 +61,19 @@ export default function CrmGalleryPicker({ open, initialSearch, onConfirm, onCan
     return () => document.removeEventListener('keydown', onKey);
   }, [open, onCancel]);
 
+  const loadSeq = useRef(0);
   const loadFolder = useCallback(async (id: string) => {
+    const seq = ++loadSeq.current;
     setActiveFolderId(id);
     setLoading(true);
     setError(null);
     try {
       const res = await api.crm.folder(id);
-      setDetail(res);
+      if (seq === loadSeq.current) setDetail(res);
     } catch (e) {
-      setError(errMsg(e));
+      if (seq === loadSeq.current) setError(errMsg(e));
     } finally {
-      setLoading(false);
+      if (seq === loadSeq.current) setLoading(false);
     }
   }, []);
 
