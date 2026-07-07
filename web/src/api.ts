@@ -279,6 +279,54 @@ export interface ProposedProduct {
   publication?: { status: 'PROPOSED' | 'LISTED' };
 }
 
+export interface CrmPhoto {
+  id: string;
+  url: string;
+  thumbnailUrl: string;
+  folderId?: string;
+  angleId: string | null;
+  sortOrder: number;
+  createdAt?: string;
+  isCover?: boolean;
+}
+export interface CrmChannel {
+  id: string;
+  name: string;
+  channelKey: string;
+  photoCount: number;
+}
+export interface CrmFolderSummary {
+  id: string;
+  name: string;
+  vendor?: string;
+  sku?: string;
+  photoCount: number;
+  cover?: { id: string; url: string; thumbnailUrl: string } | null;
+  channels?: CrmChannel[];
+}
+export interface CrmFoldersResponse {
+  folders: CrmFolderSummary[];
+  nextCursor: string | null;
+}
+export interface CrmFolderDetail {
+  id: string;
+  name: string;
+  vendor?: string;
+  sku?: string;
+  photos: CrmPhoto[];
+  channels?: CrmChannel[];
+}
+/**
+ * GET /api/crm/photos?sku= proxies the CRM's `GET /api/v1/gallery/photos`
+ * endpoint, which returns a NESTED shape — unlike getFolder's flat
+ * CrmFolderDetail. See docs/superpowers/specs/2026-07-07-crm-gallery-picker-design.md
+ * (endpoint ①) for the real CRM response sample.
+ */
+export interface CrmPhotosBySkuResponse {
+  folder: { id: string; name: string; vendor?: string; sku?: string };
+  photos: CrmPhoto[];
+}
+
 export interface ImageUploadResponse {
   location: string;
   expiresAt?: string;
@@ -370,6 +418,22 @@ export const api = {
         json: payload,
         accountId: payload.accountId,
       }),
+  },
+
+  crm: {
+    folders: (opts?: { search?: string; cursor?: string }) => {
+      const qs = new URLSearchParams();
+      if (opts?.search) qs.set('search', opts.search);
+      if (opts?.cursor) qs.set('cursor', opts.cursor);
+      const q = qs.toString();
+      return http<CrmFoldersResponse>(`/api/crm/folders${q ? `?${q}` : ''}`);
+    },
+    folder: (id: string) => http<CrmFolderDetail>(`/api/crm/folders/${encodeURIComponent(id)}`),
+    photosBySku: (sku: string) => {
+      const qs = new URLSearchParams();
+      qs.set('sku', sku);
+      return http<CrmPhotosBySkuResponse>(`/api/crm/photos?${qs.toString()}`);
+    },
   },
 
   helpers: {
