@@ -11,6 +11,7 @@ import {
   syncDescriptionImagesToGallery,
 } from '../core/clone.js';
 import { validateAllegroBody } from '../core/body-validate.js';
+import { CrmClient } from '../core/crm.js';
 import type { AccountRegistry } from '../core/registry.js';
 import { TemplateStore } from '../core/templates.js';
 import type { AllegroOffer } from '../core/types.js';
@@ -276,8 +277,13 @@ declare module 'express-serve-static-core' {
   }
 }
 
-export function apiRouter(registry: AccountRegistry, dataDir: string): Router {
+export function apiRouter(
+  registry: AccountRegistry,
+  dataDir: string,
+  crm?: { apiUrl: string; apiKey: string },
+): Router {
   const r = Router();
+  const crmClient = crm ? new CrmClient(crm) : null;
 
   const templateStore = new TemplateStore(
     path.join(dataDir, 'description-templates.json'),
@@ -364,6 +370,44 @@ export function apiRouter(registry: AccountRegistry, dataDir: string): Router {
         return res.status(404).json({ error: 'NOT_FOUND' });
       }
       res.status(204).end();
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  // --- CRM gallery proxy (read-only; key stays server-side) ---
+  const requireCrm: RequestHandler = (_req, res, next) => {
+    if (!crmClient) {
+      return res.status(503).json({ error: 'CRM_NOT_CONFIGURED', message: 'CRM API is not configured' });
+    }
+    next();
+  };
+
+  r.get('/crm/folders', requireCrm, async (req, res, next) => {
+    try {
+      const search = typeof req.query.search === 'string' ? req.query.search : undefined;
+      const cursor = typeof req.query.cursor === 'string' ? req.query.cursor : undefined;
+      res.json(await crmClient!.listFolders({ search, cursor }));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  r.get('/crm/photos', requireCrm, async (req, res, next) => {
+    const sku = z.string().min(1).safeParse(req.query.sku);
+    if (!sku.success) {
+      return res.status(400).json({ error: 'VALIDATION', message: 'sku required' });
+    }
+    try {
+      res.json(await crmClient!.photosBySku(sku.data));
+    } catch (e) {
+      next(e);
+    }
+  });
+
+  r.get('/crm/folders/:id', requireCrm, async (req, res, next) => {
+    try {
+      res.json(await crmClient!.getFolder(req.params.id));
     } catch (e) {
       next(e);
     }

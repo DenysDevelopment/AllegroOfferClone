@@ -7,6 +7,7 @@ import { fileURLToPath } from 'node:url';
 import { loadMultiConfig } from './config.js';
 import { AccountRegistry, migrateLegacyTokens } from './core/registry.js';
 import { AllegroApiError } from './core/allegro.js';
+import { CrmApiError } from './core/crm.js';
 import { authRouter } from './routes/auth.js';
 import { apiRouter } from './routes/api.js';
 
@@ -29,7 +30,7 @@ async function main() {
   }
 
   app.use('/api/auth', authRouter(registry));
-  app.use('/api', apiRouter(registry, multi.dataDir));
+  app.use('/api', apiRouter(registry, multi.dataDir, multi.crm));
 
   app.get('/api/health', (_req, res) => {
     res.json({
@@ -66,6 +67,15 @@ async function main() {
       console.error('[allegro]', err.status, err.message, err.body);
       return res.status(err.status).json({
         error: 'ALLEGRO',
+        status: err.status,
+        message: err.message,
+        body: err.body,
+      });
+    }
+    if (err instanceof CrmApiError) {
+      console.error('[crm]', err.status, err.message, err.body);
+      return res.status(err.status).json({
+        error: 'CRM',
         status: err.status,
         message: err.message,
         body: err.body,
