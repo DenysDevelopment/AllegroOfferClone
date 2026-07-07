@@ -9,14 +9,25 @@ interface Props {
 	onUploadFile?: (file: File) => Promise<string>;
 	/** When provided, shows an "Upload by URL" button that re-hosts an arbitrary URL to Allegro CDN. */
 	onUploadByUrl?: (url: string) => Promise<string>;
+	/** Opens the CRM gallery picker; resolves with selected photo URLs (in order). */
+	onImportFromCrm?: () => Promise<string[]>;
 }
 
 type UploadingState =
 	| { kind: 'idle' }
 	| { kind: 'file'; done: number; total: number }
+	| { kind: 'crm'; done: number; total: number }
 	| { kind: 'url' };
 
-export function ImagesEditor({ urls, onChange, dirty, onReset, onUploadFile, onUploadByUrl }: Props) {
+export function ImagesEditor({
+	urls,
+	onChange,
+	dirty,
+	onReset,
+	onUploadFile,
+	onUploadByUrl,
+	onImportFromCrm,
+}: Props) {
 	const fileRef = useRef<HTMLInputElement | null>(null);
 	const [uploading, setUploading] = useState<UploadingState>({ kind: 'idle' });
 	const [error, setError] = useState<string | null>(null);
@@ -40,36 +51,42 @@ export function ImagesEditor({ urls, onChange, dirty, onReset, onUploadFile, onU
 
 	const pickFile = () => fileRef.current?.click();
 
-	const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
-		const files = Array.from(e.target.files ?? []);
-		if (files.length === 0 || !onUploadFile) return;
+	// Sequentially re-host a list of sources, appending each success to the
+	// gallery as it lands. Allegro's /sale/images endpoint dislikes parallel
+	// bursts, so this is intentionally serial. Failures are collected, not thrown.
+	const runRehostQueue = async <T,>(
+		items: T[],
+		rehost: (item: T) => Promise<string>,
+		kind: 'file' | 'crm',
+		label: (item: T) => string,
+	) => {
 		setError(null);
 		const failures: string[] = [];
-		// Sequential upload: Allegro's /sale/images endpoint dislikes parallel
-		// bursts. Accumulate locally and call onChange after each success so
-		// the gallery fills up live as the queue drains.
 		let acc = urls.slice();
-		for (let i = 0; i < files.length; i++) {
-			const f = files[i];
-			setUploading({ kind: 'file', done: i, total: files.length });
+		for (let i = 0; i < items.length; i++) {
+			setUploading({ kind, done: i, total: items.length });
 			try {
-				const cdnUrl = await onUploadFile(f);
+				const cdnUrl = await rehost(items[i]);
 				if (cdnUrl) {
 					acc = [...acc, cdnUrl];
 					onChange(acc);
 				}
 			} catch (err) {
-				failures.push(`${f.name}: ${(err as Error).message}`);
+				failures.push(`${label(items[i])}: ${(err as Error).message}`);
 			}
 		}
 		setUploading({ kind: 'idle' });
 		if (failures.length) {
 			setError(
-				`Не удалось загрузить ${failures.length} из ${files.length}:\n` +
-					failures.join('\n'),
+				`Не удалось загрузить ${failures.length} из ${items.length}:\n` + failures.join('\n'),
 			);
 		}
-		// reset so the same files can be re-selected
+	};
+
+	const handleFile = async (e: React.ChangeEvent<HTMLInputElement>) => {
+		const files = Array.from(e.target.files ?? []);
+		if (files.length === 0 || !onUploadFile) return;
+		await runRehostQueue(files, onUploadFile, 'file', f => f.name);
 		if (fileRef.current) fileRef.current.value = '';
 	};
 
@@ -87,6 +104,13 @@ export function ImagesEditor({ urls, onChange, dirty, onReset, onUploadFile, onU
 		} finally {
 			setUploading({ kind: 'idle' });
 		}
+	};
+
+	const importFromCrm = async () => {
+		if (!onImportFromCrm || !onUploadByUrl) return;
+		const picked = await onImportFromCrm();
+		if (!picked.length) return;
+		await runRehostQueue(picked, onUploadByUrl, 'crm', u => u);
 	};
 
 	return (
@@ -111,6 +135,18 @@ export function ImagesEditor({ urls, onChange, dirty, onReset, onUploadFile, onU
 							className='btn btn-ghost h-7 px-2 text-[12px]'
 							title='Вернуть исходные'>
 							сбросить
+						</button>
+					)}
+					{onImportFromCrm && onUploadByUrl && (
+						<button
+							type='button'
+							onClick={importFromCrm}
+							disabled={uploading.kind !== 'idle'}
+							className='btn btn-ghost h-7 px-2 text-[12px]'
+							title='Выбрать фото из галереи CRM'>
+							{uploading.kind === 'crm'
+								? `${uploading.done}/${uploading.total} · · ·`
+								: 'Из галереи CRM'}
 						</button>
 					)}
 					{onUploadByUrl && (
