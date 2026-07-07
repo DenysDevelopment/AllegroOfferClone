@@ -37,9 +37,21 @@ const globalSchema = z.object({
   ALLEGRO_SANDBOX_CLIENT_SECRET: z.string().optional(),
   ALLEGRO_PROD_CLIENT_ID: z.string().optional(),
   ALLEGRO_PROD_CLIENT_SECRET: z.string().optional(),
+  CRM_API_URL: z.string().url().optional(),
+  CRM_API_KEY: z.string().optional(),
 });
 
 const parsedGlobals = globalSchema.parse(process.env);
+
+export function deriveCrmConfig(env: {
+  CRM_API_URL?: string;
+  CRM_API_KEY?: string;
+}): { apiUrl: string; apiKey: string } | undefined {
+  if (env.CRM_API_URL && env.CRM_API_KEY) {
+    return { apiUrl: env.CRM_API_URL, apiKey: env.CRM_API_KEY };
+  }
+  return undefined;
+}
 
 const ENDPOINTS = {
   sandbox: {
@@ -83,6 +95,7 @@ export interface MultiConfig {
   dataDir: string;
   defaultAccountId: string;
   accounts: AccountConfig[];
+  crm?: { apiUrl: string; apiKey: string };
 }
 
 function buildAccount(args: {
@@ -199,6 +212,7 @@ export function loadMultiConfig(): MultiConfig {
     dataDir: path.resolve(parsedGlobals.DATA_DIR),
     defaultAccountId: accounts[0].accountId,
     accounts,
+    crm: deriveCrmConfig(parsedGlobals),
   };
   return cached;
 }
