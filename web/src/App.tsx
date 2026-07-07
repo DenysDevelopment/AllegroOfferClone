@@ -90,6 +90,7 @@ export default function App() {
 		'ACTIVE' | 'INACTIVE'
 	>('INACTIVE');
 	const [imageUrls, setImageUrls] = useState<string[]>([]);
+	const [imagesUploading, setImagesUploading] = useState(false);
 	const [imagesUserEdited, setImagesUserEdited] = useState(false);
 	const [description, setDescription] = useState<DescriptionSections>({
 		sections: [],
@@ -492,7 +493,8 @@ export default function App() {
 		);
 	}
 
-	const cloneDisabled = !offerId || working !== 'idle' || !publishAccountId;
+	const cloneDisabled =
+		!offerId || working !== 'idle' || !publishAccountId || imagesUploading;
 
 	return (
 		<Page>
@@ -589,6 +591,7 @@ export default function App() {
 								}}
 								dirty={imagesUserEdited}
 								onReset={resetImages}
+								onBusyChange={setImagesUploading}
 								onUploadByUrl={
 									crmConfigured
 										? url => api.uploadImageByUrl(url).then(r => r.location)
@@ -596,7 +599,7 @@ export default function App() {
 								}
 								onImportFromCrm={
 									crmConfigured
-										? () => openCrmPicker(preview?.name ?? '')
+										? () => openCrmPicker()
 										: undefined
 								}
 							/>
@@ -673,7 +676,11 @@ export default function App() {
 								className='btn btn-primary w-full'
 								disabled={cloneDisabled}
 								onClick={runClone}>
-								{working === 'clone' ? 'клонирую · · ·' : 'Клонировать'}
+								{working === 'clone'
+									? 'клонирую · · ·'
+									: imagesUploading
+										? 'грузятся фото · · ·'
+										: 'Клонировать'}
 							</button>
 						</div>
 					</div>

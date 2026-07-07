@@ -76,6 +76,7 @@ export function NewProductPanel({
 	const [name, setName] = useState('');
 	const [language] = useState('pl-PL');
 	const [images, setImages] = useState<string[]>([]);
+	const [imagesUploading, setImagesUploading] = useState(false);
 	const [description, setDescription] = useState<DescriptionSections>({
 		sections: [],
 	});
@@ -398,7 +399,8 @@ export function NewProductPanel({
 		!!categoryId.trim() &&
 		images.filter(u => u.trim()).length > 0 &&
 		Object.keys(values).length > 0 &&
-		state.kind !== 'working';
+		state.kind !== 'working' &&
+		!imagesUploading;
 
 	return (
 		<div className='space-y-4'>
@@ -558,9 +560,8 @@ export function NewProductPanel({
 				onChange={setImages}
 				onUploadFile={onUploadFile}
 				onUploadByUrl={onUploadByUrl}
-				onImportFromCrm={
-					crmConfigured ? () => openCrmPicker(name?.trim() || '') : undefined
-				}
+				onImportFromCrm={crmConfigured ? () => openCrmPicker() : undefined}
+				onBusyChange={setImagesUploading}
 			/>
 
 			<DescriptionEditor
@@ -588,7 +589,11 @@ export function NewProductPanel({
 					className='btn btn-primary w-full'
 					disabled={!canSubmit || !publishAccountId}
 					onClick={runCreate}>
-					{state.kind === 'working' ? 'создаю · · ·' : 'Создать товар'}
+					{state.kind === 'working'
+						? 'создаю · · ·'
+						: imagesUploading
+							? 'грузятся фото · · ·'
+							: 'Создать товар'}
 				</button>
 			</div>
 

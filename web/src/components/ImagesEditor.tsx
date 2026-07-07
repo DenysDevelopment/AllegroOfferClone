@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 interface Props {
 	urls: string[];
@@ -11,6 +11,8 @@ interface Props {
 	onUploadByUrl?: (url: string) => Promise<string>;
 	/** Opens the CRM gallery picker; resolves with selected photo URLs (in order). */
 	onImportFromCrm?: () => Promise<string[]>;
+	/** Fired whenever a re-host/upload is in progress, so the parent can block publish/clone until images finish. */
+	onBusyChange?: (busy: boolean) => void;
 }
 
 type UploadingState =
@@ -27,10 +29,17 @@ export function ImagesEditor({
 	onUploadFile,
 	onUploadByUrl,
 	onImportFromCrm,
+	onBusyChange,
 }: Props) {
 	const fileRef = useRef<HTMLInputElement | null>(null);
 	const [uploading, setUploading] = useState<UploadingState>({ kind: 'idle' });
 	const [error, setError] = useState<string | null>(null);
+
+	// Surface upload/re-host progress so the parent can disable publish/clone
+	// while images are still landing in the Allegro CDN.
+	useEffect(() => {
+		onBusyChange?.(uploading.kind !== 'idle');
+	}, [uploading, onBusyChange]);
 	const update = (i: number, value: string) => {
 		const next = urls.slice();
 		next[i] = value;

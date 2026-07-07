@@ -14,6 +14,9 @@ export default function CrmGalleryPicker({ open, initialSearch, onConfirm, onCan
   const [search, setSearch] = useState(initialSearch ?? '');
   const [folders, setFolders] = useState<CrmFolderSummary[]>([]);
   const [detail, setDetail] = useState<CrmFolderDetail | null>(null);
+  // The clicked top-level model folder (drives the left highlight + channel bar).
+  const [activeModelId, setActiveModelId] = useState<string | null>(null);
+  // What's actually loaded in the grid — a model id or one of its channel ids.
   const [activeFolderId, setActiveFolderId] = useState<string | null>(null);
   const [selected, setSelected] = useState<CrmPhoto[]>([]);
   const [loading, setLoading] = useState(false);
@@ -24,6 +27,7 @@ export default function CrmGalleryPicker({ open, initialSearch, onConfirm, onCan
     if (!open) return;
     setSearch(initialSearch ?? '');
     setDetail(null);
+    setActiveModelId(null);
     setActiveFolderId(null);
     setSelected([]);
     setError(null);
@@ -77,9 +81,28 @@ export default function CrmGalleryPicker({ open, initialSearch, onConfirm, onCan
     }
   }, []);
 
+  // Photos live in the channel sub-folders (the model folder itself is usually
+  // empty), and the CRM's /folders/{id}/photos response carries only `photos` —
+  // no channels. So we take channels from the folder-list summary and, on
+  // clicking a model, jump straight into its first channel.
+  const openModel = useCallback(
+    (f: CrmFolderSummary) => {
+      setActiveModelId(f.id);
+      const channels = f.channels ?? [];
+      if (f.photoCount > 0 || channels.length === 0) {
+        loadFolder(f.id);
+      } else {
+        loadFolder(channels[0].id);
+      }
+    },
+    [loadFolder],
+  );
+
   if (!open) return null;
 
   const photos = detail?.photos ?? [];
+  const activeModel = folders.find(f => f.id === activeModelId) ?? null;
+  const channels = activeModel?.channels ?? [];
 
   return createPortal(
     <div
@@ -114,27 +137,43 @@ export default function CrmGalleryPicker({ open, initialSearch, onConfirm, onCan
             {folders.length === 0 && !loading ? (
               <p className="p-2 text-[13px] text-ink-muted">Ничего не найдено.</p>
             ) : (
-              folders.map(f => (
-                <button
-                  key={f.id}
-                  type="button"
-                  onClick={() => loadFolder(f.id)}
-                  className={`mb-1 flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-[13px] ${
-                    activeFolderId === f.id
-                      ? 'border-flame-ring bg-soft'
-                      : 'border-transparent hover:border-border'
-                  }`}>
-                  <span className="flex-1 truncate">{f.name}</span>
-                  <span className="text-[11px] text-ink-muted">{f.photoCount}</span>
-                </button>
-              ))
+              folders.map(f => {
+                const total = (f.channels ?? []).reduce(
+                  (n, ch) => n + (ch.photoCount ?? 0),
+                  f.photoCount ?? 0,
+                );
+                return (
+                  <button
+                    key={f.id}
+                    type="button"
+                    onClick={() => openModel(f)}
+                    className={`mb-1 flex w-full items-center gap-2 rounded-md border px-2 py-1.5 text-left text-[13px] ${
+                      activeModelId === f.id
+                        ? 'border-flame-ring bg-soft'
+                        : 'border-transparent hover:border-border'
+                    }`}>
+                    <span className="flex-1 truncate">{f.name}</span>
+                    <span className="text-[11px] text-ink-muted">{total}</span>
+                  </button>
+                );
+              })
             )}
           </aside>
 
           <section className="flex min-w-0 flex-1 flex-col">
-            {detail?.channels && detail.channels.length > 0 && (
+            {channels.length > 0 && (
               <div className="flex flex-wrap gap-1 border-b border-border px-3 py-2">
-                {detail.channels.map(ch => (
+                {activeModel && activeModel.photoCount > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => loadFolder(activeModel.id)}
+                    className={`btn btn-ghost h-7 px-2 text-[12px] ${
+                      activeFolderId === activeModel.id ? 'border border-flame-ring' : ''
+                    }`}>
+                    Все · {activeModel.photoCount}
+                  </button>
+                )}
+                {channels.map(ch => (
                   <button
                     key={ch.id}
                     type="button"
