@@ -37,7 +37,7 @@ const globalSchema = z.object({
   ALLEGRO_SANDBOX_CLIENT_SECRET: z.string().optional(),
   ALLEGRO_PROD_CLIENT_ID: z.string().optional(),
   ALLEGRO_PROD_CLIENT_SECRET: z.string().optional(),
-  CRM_API_URL: z.string().url().optional(),
+  CRM_API_URL: z.preprocess((v) => (v === '' ? undefined : v), z.string().url().optional()),
   CRM_API_KEY: z.string().optional(),
 });
 

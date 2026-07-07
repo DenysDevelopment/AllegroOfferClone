@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { deriveCrmConfig } from './config.js';
 
 describe('deriveCrmConfig', () => {
@@ -18,5 +18,21 @@ describe('deriveCrmConfig', () => {
 
   it('returns undefined when both are empty', () => {
     expect(deriveCrmConfig({})).toBeUndefined();
+  });
+});
+
+describe('config load with blank CRM env (regression: empty-string CRM_API_URL must not crash)', () => {
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+
+  it('does not throw and leaves crm undefined when CRM_API_URL is an empty string', async () => {
+    vi.stubEnv('CRM_API_URL', '');
+    vi.stubEnv('CRM_API_KEY', '');
+    vi.resetModules();
+    const mod = await import('./config.js');
+    const cfg = mod.loadMultiConfig();
+    expect(cfg.crm).toBeUndefined();
   });
 });
